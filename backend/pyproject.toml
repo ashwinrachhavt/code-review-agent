@@ -1,0 +1,15 @@
+[project]
+name = "code-explanation-agent"
+version = "0.1.0"
+description = "AI agent for code explanation using Groq and LangChain"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.121.3",
+    "langchain>=0.3.27",
+    "langchain-core>=0.3.80",
+    "langchain-groq>=0.3.8",
+    "pydantic>=2.12.4",
+    "python-dotenv>=1.2.1",
+    "uvicorn[standard]>=0.38.0",
+]
