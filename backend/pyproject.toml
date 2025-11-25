@@ -16,3 +16,36 @@ dependencies = [
     "radon>=6.0.1",
     "bandit>=1.7.9",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "S",   # flake8-bandit (lightweight security checks)
+  "C90", # mccabe complexity warnings
+  "SIM", # flake8-simplify
+  "RUF", # Ruff-specific rules
+]
+ignore = [
+  "S603",  # subprocess without shell=True is generally fine in controlled tools
+  "S607",  # allow semgrep/bandit commands
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = [
+  "backend/tests",
+]
+addopts = "-q"
