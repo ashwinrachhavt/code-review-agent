@@ -15,7 +15,7 @@ Create an agent that:
 
 - ✅ FastAPI skeleton with `/explain` endpoint
 - ✅ React frontend with CopilotKit chat UI
-- ✅ Groq LLM integration (free API)
+- ✅ LangGraph-ready backend structure with OpenAI models
 
 **What you implement:**
 
@@ -32,8 +32,8 @@ Create an agent that:
 # Install UV
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Get free Groq API key
-# https://console.groq.com/
+# Get an OpenAI API key
+# https://platform.openai.com/
 ```
 
 ### Setup
@@ -43,7 +43,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 cd backend
 uv sync
 cp .env.example .env
-# Edit .env and add your GROQ_API_KEY
+# Edit .env and add your OPENAI_API_KEY
 
 # Run
 uv run python main.py
@@ -165,16 +165,25 @@ Good luck! 🚀
 
 ### Architecture Overview
 
-_Explain how you structured your code..._
+- Backend (`backend/`): FastAPI `/explain` streams incremental output. A small multi-agent flow runs Quality, Bug, Security heuristics, then optional Bandit + Semgrep tooling, and finally an OpenAI synthesis that streams tokens. Progress markers are emitted as `:::progress: <0-100>` lines.
+- Graph (`backend/graph/…`): Minimal nodes per expert plus a synthesis prompt builder.
+- Tools (`backend/tools/security_tooling.py`): Optional wrappers for Bandit and Semgrep with graceful fallbacks.
+- Frontend (`frontend/`): React + CopilotKit UI. `CodeExplainer` performs a streaming `fetch` to `/explain`, renders activity logs, and shows a progress bar and streamed report.
 
 ### Design Decisions
 
-_Why did you make the choices you made?..._
+- Plain text chunked streaming keeps the runtime simple while remaining compatible with CopilotKit UI. The client parses progress markers and shows activity logs for a responsive UX.
+- Bandit/Semgrep integrated as optional tools: if not installed/unavailable, the server reports and continues.
+- OpenAI synthesis is lazy-imported and guarded; if `OPENAI_API_KEY` is missing, we still stream a heuristic report.
 
 ### How to Test
 
-_Any specific test cases or scenarios to try?..._
+1) Backend: `cd backend && uv sync && cp .env.example .env` then set `OPENAI_API_KEY`. Optional: `pip install semgrep`. Run `uv run uvicorn main:app --reload`.
+2) Frontend: `cd frontend && npm install && npm run dev`.
+3) Paste code in the left panel and click Analyze. You should see activity logs, a progress bar moving to 100, and a streaming report. Without `OPENAI_API_KEY`, you still see a basic heuristic review.
 
 ### Future Improvements
 
-_What would you add with more time?..._
+- Use CopilotKit LangGraph Python SDK (`copilotkit.langgraph`) to emit intermediate state per node and stream it natively into the sidebar chat.
+- Add RAG (Qdrant) + Tavily fact-checker nodes; stream their progress and integrate into synthesis.
+- Framework specialist + architecture analysis nodes; language-aware AST analyzers.
