@@ -148,10 +148,8 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
         if chat_q:
             state["chat_query"] = str(chat_q)
             # Append chat query as a user message for conversational context
-            try:
+            with suppress(Exception):
                 mem.append_user(thread_id, str(chat_q))
-            except Exception:
-                ...
     except Exception:
         pass
     # Set chat_mode flag for downstream nodes
@@ -487,7 +485,6 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
     Input: { code, thread_id?, agents? }
     Streams progress/messages via SSE and stores final report + structured reports.
     """
-    settings = get_settings()
     mem = get_memory()
     code = _extract_code(body)
     if not code:
@@ -557,10 +554,8 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
                         yield sse(p)
                         streamed_chunks.append(p)
 
-            try:
+            with suppress(Exception):
                 mem.set_analysis(thread_id, text or "", reports)
-            except Exception:
-                ...
             yield sse(":::progress: 100")
         except Exception:
             # Fallback invoke and persist
@@ -572,15 +567,13 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
                     if p:
                         yield sse(p)
                         streamed_chunks.append(p)
-            try:
-                reports = {
-                    "security_report": (final or {}).get("security_report"),
-                    "quality_report": (final or {}).get("quality_report"),
-                    "bug_report": (final or {}).get("bug_report"),
-                }
+            reports = {
+                "security_report": (final or {}).get("security_report"),
+                "quality_report": (final or {}).get("quality_report"),
+                "bug_report": (final or {}).get("bug_report"),
+            }
+            with suppress(Exception):
                 mem.set_analysis(thread_id, text or "\n\n".join(streamed_chunks), reports)
-            except Exception:
-                ...
             yield sse(":::progress: 100")
 
     headers = {

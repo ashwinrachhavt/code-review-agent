@@ -1,5 +1,7 @@
 # Code Explanation Agent - Take Home Project
-/Users/ashwin/Applications/Master/code-review-agent/frontend/public/agent-chat.png
+
+![Agent Chat](frontend/public/agent-chat.png)
+![Special Agent Chat](frontend/public/special-agent-chat.png)
 
 Build an AI agent that explains code using natural language.
 
