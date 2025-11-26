@@ -201,34 +201,31 @@ Good luck! 🚀
 
 ```mermaid
 graph TD;
-    FE[Frontend: Next.js + CopilotKit];
-    API[FastAPI Endpoints (/explain, /analyze, /chat)];
-    LG[LangGraph App];
+    FE[Frontend Next.js CopilotKit];
+    API[FastAPI API];
+    LG[LangGraph];
     R[Router];
     SA[Static Analysis];
     SEC[Security Analysis];
     EXP[Experts Loop];
-    TOOLS[Bandit · Semgrep · Radon];
+    TOOLS[Bandit + Semgrep + Radon];
     OAI[OpenAI Chat];
     SYN[Synthesis];
-    MEM[Memory/Persist];
+    MEM[Memory Persist];
     PUB[Redis PubSub];
 
-    FE -->|SSE| API;
+    FE --> API;
     API --> LG;
     LG --> R;
     R --> SA;
     SA --> SEC;
     SEC --> EXP;
-    EXP -->|tools| TOOLS;
-    EXP -->|LLM| OAI;
+    EXP --> TOOLS;
+    EXP --> OAI;
     EXP --> SYN;
     SYN --> MEM;
-    MEM -->|publish| PUB;
-    PUB -->|stream| FE;
-
-    classDef opt fill:#f6f8fa,stroke:#bbb,color:#333;
-    class OAI,TOOLS,PUB opt;
+    MEM --> PUB;
+    PUB --> FE;
 ```
 
 ### Design Decisions
