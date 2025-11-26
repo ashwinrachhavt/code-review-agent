@@ -200,19 +200,32 @@ Good luck! 🚀
 #### Architecture Diagram (Mermaid)
 
 ```mermaid
-graph LR
-    FE[Frontend: Next.js + CopilotKit] -- SSE /explain|/analyze|/chat --> API[FastAPI Router]
-    API --> LG[LangGraph App]
-    LG --> R[Router Node]
-    R --> SA[Static Analysis]
-    SA --> SEC[Security Analysis]
-    SEC --> EXP[Experts Loop]
-    EXP -- tools --> TOOLS[Bandit / Semgrep / Radon]
-    EXP -- LLM --> OAI[OpenAI Chat (optional)]
-    EXP --> SYN[Synthesis]
-    SYN --> PERSIST[Persist / Memory]
-    PERSIST -- publish --> PUB[Redis Pub/Sub (optional)]
-    PUB -- streamed lines --> FE
+graph TD;
+    FE[Frontend: Next.js + CopilotKit];
+    API[FastAPI Endpoints (/explain, /analyze, /chat)];
+    LG[LangGraph App];
+    R[Router];
+    SA[Static Analysis];
+    SEC[Security Analysis];
+    EXP[Experts Loop];
+    TOOLS[Bandit · Semgrep · Radon];
+    OAI[OpenAI Chat];
+    SYN[Synthesis];
+    MEM[Memory/Persist];
+    PUB[Redis PubSub];
+
+    FE -->|SSE| API;
+    API --> LG;
+    LG --> R;
+    R --> SA;
+    SA --> SEC;
+    SEC --> EXP;
+    EXP -->|tools| TOOLS;
+    EXP -->|LLM| OAI;
+    EXP --> SYN;
+    SYN --> MEM;
+    MEM -->|publish| PUB;
+    PUB -->|stream| FE;
 
     classDef opt fill:#f6f8fa,stroke:#bbb,color:#333;
     class OAI,TOOLS,PUB opt;
