@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
-
+from typing import Any
 
 COMMON_BUG_PATTERNS = [
     (re.compile(r"except\s+Exception\s*:\s*pass"), "swallowed_exception"),
@@ -12,16 +11,15 @@ COMMON_BUG_PATTERNS = [
 ]
 
 
-def _lines(code: str) -> List[str]:
+def _lines(code: str) -> list[str]:
     return code.splitlines()
 
 
-def bug_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Naive bug heuristics (MVP). Adds suspected issues with line numbers.
-    """
+def bug_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Naive bug heuristics (MVP). Adds suspected issues with line numbers."""
     code = state.get("code", "")
     lines = _lines(code)
-    suspects: List[Dict[str, Any]] = []
+    suspects: list[dict[str, Any]] = []
 
     for i, line in enumerate(lines, start=1):
         for pattern, kind in COMMON_BUG_PATTERNS:
@@ -37,12 +35,13 @@ def bug_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
     state["bug_report"] = {"bugs": suspects}
-    state["tool_logs"].append({
-        "id": "bug",
-        "agent": "bug",
-        "message": "Bug Hunter: heuristics completed.",
-        "status": "completed",
-    })
+    state["tool_logs"].append(
+        {
+            "id": "bug",
+            "agent": "bug",
+            "message": "Bug Hunter: heuristics completed.",
+            "status": "completed",
+        }
+    )
     state["progress"] = min(100.0, state.get("progress", 0.0) + 20.0)
     return state
-

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, TypedDict
 
 
 class CodeReviewState(TypedDict, total=False):
@@ -9,17 +9,16 @@ class CodeReviewState(TypedDict, total=False):
 
     # Core input
     code: str
-    language: Optional[str]
+    language: str | None
 
     # Expert outputs
-    security_report: Optional[Dict[str, Any]]
-    quality_report: Optional[Dict[str, Any]]
-    bug_report: Optional[Dict[str, Any]]
+    security_report: dict[str, Any] | None
+    quality_report: dict[str, Any] | None
+    bug_report: dict[str, Any] | None
 
     # Synthesis
-    final_report: Optional[str]
+    final_report: str | None
 
     # UX helpers (optional for richer UI later)
-    tool_logs: List[Dict[str, Any]]
+    tool_logs: list[dict[str, Any]]
     progress: float
-

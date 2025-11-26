@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "code-explanation-agent"
 version = "0.1.0"
@@ -15,4 +19,53 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
     "radon>=6.0.1",
     "bandit>=1.7.9",
+    "celery>=5.4.0",
+    "redis>=5.0.8",
 ]
+
+[tool.setuptools.packages.find]
+# Explicitly list top-level packages in flat layout
+include = ["app*", "graph*", "models*", "prompts*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "S",   # flake8-bandit (lightweight security checks)
+  "C90", # mccabe complexity warnings
+  "SIM", # flake8-simplify
+  "RUF", # Ruff-specific rules
+]
+ignore = [
+  "S603",  # subprocess without shell=True is generally fine in controlled tools
+  "S607",  # allow semgrep/bandit commands
+  "E402",  # allow module docstrings before imports and multi-block imports
+  "E501",  # allow longer lines in prompts and messages
+  "S101",  # allow asserts in tests
+  "S104",  # host binding in local dev
+  "S110",  # broad try/except patterns acceptable in tooling
+  "S112",  # try/except/continue patterns acceptable in parsing
+  "C901",  # allow higher complexity in early iteration
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**.py" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests",
+]
+addopts = "-q"

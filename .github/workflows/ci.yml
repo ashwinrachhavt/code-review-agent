@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install tools
+        run: |
+          uv pip install --system ruff pytest
+
+      - name: Install backend
+        run: |
+          uv pip install --system -e backend
+
+      - name: Lint (ruff)
+        run: |
+          ruff check backend --config backend/pyproject.toml
+          ruff format --check backend --config backend/pyproject.toml
+
+      - name: Test (pytest)
+        env:
+          OPENAI_API_KEY: ''
+        run: |
+          pytest -c backend/pyproject.toml

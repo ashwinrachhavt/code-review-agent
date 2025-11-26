@@ -54,7 +54,7 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:5173
+Visit http://localhost:3000
 
 ## 📋 Requirements
 
@@ -179,7 +179,7 @@ Good luck! 🚀
 ### How to Test
 
 1) Backend: `cd backend && uv sync && cp .env.example .env` then set `OPENAI_API_KEY`. Optional: `pip install semgrep`. Run `uv run uvicorn main:app --reload`.
-2) Frontend: `cd frontend && npm install && npm run dev`.
+2) Frontend: `cd frontend && npm install && cp .env.example .env && npm run dev`.
 3) Paste code in the left panel and click Analyze. You should see activity logs, a progress bar moving to 100, and a streaming report. Without `OPENAI_API_KEY`, you still see a basic heuristic review.
 
 ### Future Improvements
