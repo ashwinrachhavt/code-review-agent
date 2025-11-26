@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Optional
 
 
-def setup_logging(level: Optional[str] = "INFO") -> None:
+def setup_logging(level: str | None = "INFO") -> None:
     """Configure root logging with a concise format.
 
     Parameters
@@ -21,4 +20,3 @@ def setup_logging(level: Optional[str] = "INFO") -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stdout,
     )
-

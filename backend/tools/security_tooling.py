@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Dict, List
+from contextlib import suppress
+from typing import Any
 
 
 def _temp_suffix_for_language(language: str | None) -> str:
@@ -19,7 +19,7 @@ def _temp_suffix_for_language(language: str | None) -> str:
     return ".txt"
 
 
-def scan_bandit(code: str, language: str | None = None, timeout: int = 25) -> Dict[str, Any]:
+def scan_bandit(code: str, language: str | None = None, timeout: int = 25) -> dict[str, Any]:
     """Run bandit (if available) on the provided code and return parsed findings.
 
     Returns: { available: bool, findings: [...], error?: str }
@@ -58,13 +58,11 @@ def scan_bandit(code: str, language: str | None = None, timeout: int = 25) -> Di
         return {"available": True, "findings": [], "error": str(e)}
     finally:
         if temp_path and os.path.exists(temp_path):
-            try:
+            with suppress(Exception):
                 os.remove(temp_path)
-            except Exception:
-                pass
 
 
-def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> Dict[str, Any]:
+def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> dict[str, Any]:
     """Run semgrep (if available) with auto config and return findings.
 
     Returns: { available: bool, findings: [...], error?: str }
@@ -84,16 +82,20 @@ def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> D
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if proc.returncode not in (0, 1):
             # Non-zero may be rule download or parse issue
-            return {"available": True, "findings": [], "error": proc.stderr.strip() or "semgrep failed"}
+            return {
+                "available": True,
+                "findings": [],
+                "error": proc.stderr.strip() or "semgrep failed",
+            }
 
         data = json.loads(proc.stdout.strip() or "{}")
-        findings: List[Dict[str, Any]] = []
+        findings: list[dict[str, Any]] = []
         for res in data.get("results", []) or []:
             extra = res.get("extra", {})
             sev = (extra.get("severity") or "MEDIUM").lower()
             msg = extra.get("message") or ""
             path = res.get("path") or ""
-            start = ((res.get("start") or {}).get("line"))
+            start = (res.get("start") or {}).get("line")
             findings.append(
                 {
                     "line": start,
@@ -110,8 +112,5 @@ def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> D
         return {"available": True, "findings": [], "error": str(e)}
     finally:
         if temp_path and os.path.exists(temp_path):
-            try:
+            with suppress(Exception):
                 os.remove(temp_path)
-            except Exception:
-                pass
-

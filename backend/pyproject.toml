@@ -15,6 +15,8 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
     "radon>=6.0.1",
     "bandit>=1.7.9",
+    "celery>=5.4.0",
+    "redis>=5.0.8",
 ]
 
 [tool.ruff]
@@ -36,7 +38,16 @@ select = [
 ignore = [
   "S603",  # subprocess without shell=True is generally fine in controlled tools
   "S607",  # allow semgrep/bandit commands
+  "E402",  # allow module docstrings before imports and multi-block imports
+  "E501",  # allow longer lines in prompts and messages
+  "S101",  # allow asserts in tests
+  "S104",  # host binding in local dev
+  "S110",  # broad try/except patterns acceptable in tooling
+  "S112",  # try/except/continue patterns acceptable in parsing
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/**.py" = ["S101"]
 
 [tool.ruff.format]
 quote-style = "double"

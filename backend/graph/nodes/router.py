@@ -5,10 +5,10 @@ from __future__ import annotations
 Detects the code language and logs the routing decision.
 """
 
-from typing import Any, Dict
+from typing import Any
 
 
-def router_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def router_node(state: dict[str, Any]) -> dict[str, Any]:
     """Detect language from the code and update progress.
 
     Parameters
@@ -42,4 +42,3 @@ def router_node(state: Dict[str, Any]) -> Dict[str, Any]:
     state["tool_logs"] = logs
     state["progress"] = min(100.0, float(state.get("progress", 0.0)) + 5.0)
     return state
-

@@ -7,11 +7,12 @@ Combines radon complexity metrics with simple regex-based bug pattern checks.
 
 import re
 import statistics
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     from radon.complexity import cc_visit  # type: ignore
 except Exception:  # pragma: no cover
+
     def cc_visit(_code: str):  # type: ignore
         return []
 
@@ -24,7 +25,7 @@ COMMON_BUG_PATTERNS = [
 ]
 
 
-def _complexity_summary(code: str) -> Dict[str, Any]:
+def _complexity_summary(code: str) -> dict[str, Any]:
     blocks = cc_visit(code or "")
     scores = [getattr(b, "complexity", 0.0) for b in blocks]
     avg = statistics.fmean(scores) if scores else 0.0
@@ -41,7 +42,7 @@ def _complexity_summary(code: str) -> Dict[str, Any]:
     return {"avg": avg, "worst": worst, "offenders": offenders, "count": len(blocks)}
 
 
-def static_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def static_analysis_node(state: dict[str, Any]) -> dict[str, Any]:
     """Run code quality metrics and simple bug heuristics.
 
     Parameters
@@ -59,7 +60,7 @@ def static_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Quality metrics
     metrics = _complexity_summary(code)
-    issues: List[Dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
     if metrics["worst"] >= 10:
         for off in metrics["offenders"]:
             issues.append(
@@ -82,7 +83,7 @@ def static_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
     state["quality_report"] = {"metrics": metrics, "issues": issues}
 
     # Bug heuristics
-    suspects: List[Dict[str, Any]] = []
+    suspects: list[dict[str, Any]] = []
     for i, line in enumerate(code.splitlines(), start=1):
         for pattern, kind in COMMON_BUG_PATTERNS:
             if pattern.search(line):
@@ -98,13 +99,14 @@ def static_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
     state["bug_report"] = {"bugs": suspects}
 
     logs = state.get("tool_logs") or []
-    logs.append({
-        "id": "static",
-        "agent": "quality+bug",
-        "message": "Static analysis: quality metrics and bug heuristics complete.",
-        "status": "completed",
-    })
+    logs.append(
+        {
+            "id": "static",
+            "agent": "quality+bug",
+            "message": "Static analysis: quality metrics and bug heuristics complete.",
+            "status": "completed",
+        }
+    )
     state["tool_logs"] = logs
     state["progress"] = min(100.0, float(state.get("progress", 0.0)) + 35.0)
     return state
-

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from graph.nodes.router import router_node
-from graph.nodes.static_analysis import static_analysis_node
-from graph.nodes.security_analysis import security_analysis_node
 from graph.graph import build_graph
+from graph.nodes.router import router_node
+from graph.nodes.security_analysis import security_analysis_node
+from graph.nodes.static_analysis import static_analysis_node
 from graph.state import initial_state
 
 
@@ -32,4 +32,3 @@ def test_graph_invoke_end_to_end_without_llm(monkeypatch) -> None:
     res = app.invoke(initial_state(code="def x():\n    return 1"))
     assert isinstance(res.get("final_report"), str)
     assert res["progress"] <= 100.0
-

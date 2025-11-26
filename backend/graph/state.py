@@ -6,7 +6,7 @@ The state is designed to be serializable by LangGraph's checkpointing layer
 and resilient to partial updates from nodes. Keep values JSON-serializable.
 """
 
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, TypedDict
 
 
 class HistoryMessage(TypedDict, total=False):
@@ -22,36 +22,36 @@ class CodeReviewState(TypedDict, total=False):
 
     # Core input
     code: str
-    language: Optional[str]
+    language: str | None
 
     # Conversation memory
-    history: List[HistoryMessage]
+    history: list[HistoryMessage]
 
     # Expert outputs
-    quality_report: Optional[Dict[str, Any]]
-    bug_report: Optional[Dict[str, Any]]
-    security_report: Optional[Dict[str, Any]]
+    quality_report: dict[str, Any] | None
+    bug_report: dict[str, Any] | None
+    security_report: dict[str, Any] | None
 
     # Tooling + orchestration metadata
-    tool_logs: List[Dict[str, Any]]
+    tool_logs: list[dict[str, Any]]
     progress: float
     mode: str
-    agents: List[str]
+    agents: list[str]
 
     # Synthesis result
-    final_report: Optional[str]
+    final_report: str | None
 
     # Agent tool-calling scratchpad (internal to experts loop)
-    agent_messages: List[Any]
+    agent_messages: list[Any]
     experts_iterations: int
 
 
 def initial_state(
     *,
     code: str,
-    history: Optional[List[HistoryMessage]] = None,
+    history: list[HistoryMessage] | None = None,
     mode: str = "orchestrator",
-    agents: Optional[List[str]] = None,
+    agents: list[str] | None = None,
 ) -> CodeReviewState:
     """Construct an initial state with safe defaults.
 

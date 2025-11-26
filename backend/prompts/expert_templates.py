@@ -18,4 +18,3 @@ SYNTHESIS_SYSTEM_PROMPT = (
     "You are an editorial synthesizer. Merge multiple expert reports into a cohesive, actionable review. "
     "Use short sections, bullets, and include line references from inputs when available. Prioritize clarity."
 )
-

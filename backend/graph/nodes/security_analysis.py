@@ -6,10 +6,9 @@ Bandit/Semgrep integration will be added via ToolNode in Phase 4.
 """
 
 import re
-from typing import Any, Dict, List
+from typing import Any
 
-
-SECURITY_PATTERNS: List[tuple[re.Pattern[str], str]] = [
+SECURITY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\beval\s*\("), "eval_usage"),
     (re.compile(r"\bexec\s*\("), "exec_usage"),
     (re.compile(r"subprocess\.(Popen|run)\(.*shell\s*=\s*True"), "shell_true"),
@@ -21,7 +20,7 @@ SECURITY_PATTERNS: List[tuple[re.Pattern[str], str]] = [
 ]
 
 
-def security_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def security_analysis_node(state: dict[str, Any]) -> dict[str, Any]:
     """Run basic regex-based security checks and update the report.
 
     Parameters
@@ -36,7 +35,7 @@ def security_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
 
     code = state.get("code", "") or ""
-    findings: List[Dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
 
     for lineno, line in enumerate(code.splitlines(), start=1):
         for pattern, kind in SECURITY_PATTERNS:
@@ -45,7 +44,9 @@ def security_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     {
                         "line": lineno,
                         "type": kind,
-                        "severity": "high" if kind in {"eval_usage", "exec_usage", "shell_true"} else "medium",
+                        "severity": "high"
+                        if kind in {"eval_usage", "exec_usage", "shell_true"}
+                        else "medium",
                         "snippet": line.strip()[:160],
                         "exploit": "User-controlled input could lead to code execution or command injection.",
                     }
@@ -56,13 +57,14 @@ def security_analysis_node(state: Dict[str, Any]) -> Dict[str, Any]:
     state["security_report"] = sec
 
     logs = state.get("tool_logs") or []
-    logs.append({
-        "id": "security-regex",
-        "agent": "security",
-        "message": f"Security analysis: {len(findings)} regex findings.",
-        "status": "completed",
-    })
+    logs.append(
+        {
+            "id": "security-regex",
+            "agent": "security",
+            "message": f"Security analysis: {len(findings)} regex findings.",
+            "status": "completed",
+        }
+    )
     state["tool_logs"] = logs
     state["progress"] = min(100.0, float(state.get("progress", 0.0)) + 30.0)
     return state
-

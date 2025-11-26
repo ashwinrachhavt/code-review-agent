@@ -8,23 +8,22 @@ Design goals:
 - Redis backend preferred; fallback to in-memory store.
 """
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-import json
 import math
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from abc import ABC, abstractmethod
+from contextlib import suppress
+from dataclasses import dataclass
+from typing import Any
 
 from app.core.config import Settings, get_settings
-
 
 # -------------------- Embedders --------------------
 
 
 class Embedder(ABC):
     @abstractmethod
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         """Return a float vector embedding for the given text."""
 
 
@@ -38,7 +37,7 @@ class LocalEmbedder(Embedder):
     def __init__(self, dims: int = 256) -> None:
         self.dims = dims
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         text = (text or "").lower()
         vec = [0.0] * self.dims
         if len(text) < 3:
@@ -53,7 +52,7 @@ class LocalEmbedder(Embedder):
 
 
 class OpenAIEmbedder(Embedder):  # pragma: no cover - network-dependent
-    def __init__(self, model: Optional[str] = None) -> None:
+    def __init__(self, model: str | None = None) -> None:
         # Prefer text-embedding-3-small for cost-efficiency
         self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         try:
@@ -62,14 +61,14 @@ class OpenAIEmbedder(Embedder):  # pragma: no cover - network-dependent
             raise RuntimeError("langchain-openai not available for embeddings") from e
         self._client = OpenAIEmbeddings(model=self.model)
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         return list(self._client.embed_query(text))  # type: ignore[no-any-return]
 
 
-def cosine(a: List[float], b: List[float]) -> float:
+def cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a)) or 1.0
     nb = math.sqrt(sum(y * y for y in b)) or 1.0
     return dot / (na * nb)
@@ -80,7 +79,7 @@ def cosine(a: List[float], b: List[float]) -> float:
 
 class SemanticCache(ABC):
     @abstractmethod
-    def get(self, query: str, namespace: str, *, min_score: float = 0.92) -> Optional[Dict[str, Any]]:
+    def get(self, query: str, namespace: str, *, min_score: float = 0.92) -> dict[str, Any] | None:
         """Return the closest cached value if similarity >= min_score.
 
         Returns a dict with at least: {"score": float, "value": Any}
@@ -95,7 +94,7 @@ class SemanticCache(ABC):
 @dataclass
 class CacheItem:
     key: str
-    embedding: List[float]
+    embedding: list[float]
     value: Any
     ts: float
 
@@ -105,17 +104,17 @@ class MemorySemanticCache(SemanticCache):
 
     def __init__(self, embedder: Embedder) -> None:
         self.embedder = embedder
-        self.store: Dict[str, Dict[str, CacheItem]] = {}
+        self.store: dict[str, dict[str, CacheItem]] = {}
 
-    def _ns(self, namespace: str) -> Dict[str, CacheItem]:
+    def _ns(self, namespace: str) -> dict[str, CacheItem]:
         return self.store.setdefault(namespace, {})
 
-    def get(self, query: str, namespace: str, *, min_score: float = 0.92) -> Optional[Dict[str, Any]]:
+    def get(self, query: str, namespace: str, *, min_score: float = 0.92) -> dict[str, Any] | None:
         ns = self._ns(namespace)
         if not ns:
             return None
         qv = self.embedder.embed(query)
-        best: Tuple[Optional[str], float] = (None, 0.0)
+        best: tuple[str | None, float] = (None, 0.0)
         for key, item in ns.items():
             s = cosine(qv, item.embedding)
             if s > best[1]:
@@ -157,7 +156,7 @@ class RedisSemanticCache(SemanticCache):  # pragma: no cover - external service
     def _item_key(self, namespace: str, item_id: str) -> str:
         return f"sc:{namespace}:{item_id}"
 
-    def get(self, query: str, namespace: str, *, min_score: float = 0.92) -> Optional[Dict[str, Any]]:
+    def get(self, query: str, namespace: str, *, min_score: float = 0.92) -> dict[str, Any] | None:
         import json as _json
 
         keys_key = self._ns_keys_key(namespace)
@@ -166,7 +165,7 @@ class RedisSemanticCache(SemanticCache):  # pragma: no cover - external service
         if not ids:
             return None
         qv = self.embedder.embed(query)
-        best: Tuple[Optional[str], float] = (None, 0.0)
+        best: tuple[str | None, float] = (None, 0.0)
         for item_id in ids:
             raw = self.r.hgetall(self._item_key(namespace, item_id)) or {}
             emb_s = raw.get(b"embedding") or raw.get("embedding")
@@ -184,7 +183,9 @@ class RedisSemanticCache(SemanticCache):  # pragma: no cover - external service
         raw = self.r.hgetall(self._item_key(namespace, best[0])) or {}
         val_s = raw.get(b"value") or raw.get("value")
         try:
-            val = _json.loads(val_s if isinstance(val_s, str) else (val_s.decode("utf-8") if val_s else "null"))
+            val = _json.loads(
+                val_s if isinstance(val_s, str) else (val_s.decode("utf-8") if val_s else "null")
+            )
         except Exception:
             val = None
         return {"score": best[1], "value": val}
@@ -211,14 +212,12 @@ class RedisSemanticCache(SemanticCache):  # pragma: no cover - external service
 
 def _get_embedder(settings: Settings) -> Embedder:
     if settings.OPENAI_API_KEY:
-        try:
+        with suppress(Exception):
             return OpenAIEmbedder()
-        except Exception:
-            pass
     return LocalEmbedder()
 
 
-def get_semantic_cache(settings: Optional[Settings] = None) -> SemanticCache:
+def get_semantic_cache(settings: Settings | None = None) -> SemanticCache:
     settings = settings or get_settings()
     embedder = _get_embedder(settings)
 
@@ -244,4 +243,3 @@ def build_query_string(*parts: str, max_len: int = 4000) -> str:
     """Build a canonical query string truncated to a safe length."""
     base = "|".join(p for p in parts if p)
     return base[:max_len]
-

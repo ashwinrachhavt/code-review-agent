@@ -6,7 +6,6 @@ Executes Bandit on Python code when available and returns JSON findings.
 """
 
 import json
-from typing import Optional
 
 from langchain_core.tools import tool  # type: ignore
 
@@ -14,7 +13,7 @@ from tools.security_tooling import scan_bandit
 
 
 @tool("bandit_scan")
-def bandit_scan_tool(code: str, language: Optional[str] = "python") -> str:
+def bandit_scan_tool(code: str, language: str | None = "python") -> str:
     """Run Bandit static analyzer on provided code.
 
     Parameters

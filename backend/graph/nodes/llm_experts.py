@@ -6,33 +6,34 @@ In Phase 4, this module will wire LangGraph ToolNode with Bandit/Semgrep/Radon.
 For now, it simply annotates the state to indicate where LLM experts would run.
 """
 
-from typing import Any, Dict, List
 import json
-
-
-from app.core.config import get_settings
+from typing import Any
 
 from langgraph.prebuilt import ToolNode  # type: ignore
 
+from app.core.config import get_settings
+
 try:
-    from langchain_openai import ChatOpenAI  # type: ignore
     from langchain_core.messages import (
-        SystemMessage,
-        HumanMessage,
         AIMessage,
-        ToolMessage,
         BaseMessage,
+        HumanMessage,
+        SystemMessage,
+        ToolMessage,
     )  # type: ignore
+    from langchain_openai import ChatOpenAI  # type: ignore
 except Exception:  # pragma: no cover
     ChatOpenAI = None  # type: ignore
     SystemMessage = HumanMessage = AIMessage = ToolMessage = BaseMessage = object  # type: ignore
 
-from ..tools import get_default_tools
-from ..memory.semantic_cache import get_semantic_cache, build_query_string
 from prompts.loader import get_prompt
+from contextlib import suppress
+
+from ..memory.semantic_cache import build_query_string, get_semantic_cache
+from ..tools import get_default_tools
 
 
-def _initial_messages(state: Dict[str, Any]) -> List[Any]:
+def _initial_messages(state: dict[str, Any]) -> list[Any]:
     code = (state.get("code", "") or "")[:4000]
     lang = state.get("language") or "unknown"
     system = get_prompt("tool_instructions") or (
@@ -46,7 +47,7 @@ def _initial_messages(state: Dict[str, Any]) -> List[Any]:
     ]
 
 
-def experts_model_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def experts_model_node(state: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     # Semantic cache: if we've already computed experts reports for this code, reuse.
     try:
@@ -67,7 +68,7 @@ def experts_model_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 # Replace or merge metrics conservatively
                 q = state.get("quality_report") or {}
                 qm = q.get("metrics") or {}
-                cm = (data["quality_report"].get("metrics") or {})
+                cm = data["quality_report"].get("metrics") or {}
                 qm["avg"] = float(cm.get("avg", qm.get("avg", 0.0)))
                 qm["worst"] = max(float(cm.get("worst", 0.0)), float(qm.get("worst", 0.0) or 0.0))
                 qm["count"] = int(cm.get("count", qm.get("count", 0)))
@@ -75,32 +76,65 @@ def experts_model_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 q["issues"] = q.get("issues", [])
                 state["quality_report"] = q
             logs = state.get("tool_logs") or []
-            logs.append({
-                "id": "semantic-cache",
-                "agent": "experts",
-                "message": "Semantic cache hit for experts.",
-                "status": "hit",
-            })
+            logs.append(
+                {
+                    "id": "semantic-cache",
+                    "agent": "experts",
+                    "message": "Semantic cache hit for experts.",
+                    "status": "hit",
+                }
+            )
             state["tool_logs"] = logs
             state["experts_next"] = "finalize"
             return state
     except Exception:
         pass
     tools = get_default_tools()
-    messages: List[BaseMessage] = state.get("agent_messages") or []  # type: ignore[assignment]
+    messages: list[BaseMessage] = state.get("agent_messages") or []  # type: ignore[assignment]
     if not messages:
         messages = _initial_messages(state)  # type: ignore[assignment]
 
-    if ChatOpenAI is None:
+    # Sanitize persisted message history: if there are ToolMessages but no
+    # preceding assistant message with tool_calls, reset to a clean start.
+    try:
+        has_tool_msg = any(isinstance(m, ToolMessage) for m in messages)  # type: ignore[arg-type]
+        if has_tool_msg:
+            valid = True
+            for idx, m in enumerate(messages):  # type: ignore[assignment]
+                if isinstance(m, ToolMessage):  # type: ignore[arg-type]
+                    # Find the last assistant before this tool message
+                    prev_ai = None
+                    for j in range(idx - 1, -1, -1):
+                        if isinstance(messages[j], AIMessage):  # type: ignore[arg-type]
+                            prev_ai = messages[j]
+                            break
+                    if prev_ai is None or not getattr(prev_ai, "tool_calls", None):
+                        valid = False
+                        break
+            if not valid:
+                messages = _initial_messages(state)  # type: ignore[assignment]
+    except Exception:
+        # Be conservative on any schema mismatch
+        messages = _initial_messages(state)  # type: ignore[assignment]
+
+    # If no model or no API key, skip tool-calling flow
+    if ChatOpenAI is None or not settings.OPENAI_API_KEY:
         # No model; skip tool-calling flow
         state["agent_messages"] = messages
         state["experts_iterations"] = int(state.get("experts_iterations", 0))
         state["experts_next"] = "finalize"
         return state
 
-    model = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.0).bind_tools(tools)
-    ai = model.invoke(messages)  # type: ignore[arg-type]
-    messages = messages + [ai]  # type: ignore[operator]
+    try:
+        model = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.0).bind_tools(tools)
+        ai = model.invoke(messages)  # type: ignore[arg-type]
+    except Exception:
+        # If model initialization/invocation fails (e.g., missing API key), skip tools path
+        state["agent_messages"] = messages
+        state["experts_iterations"] = int(state.get("experts_iterations", 0))
+        state["experts_next"] = "finalize"
+        return state
+    messages = [*messages, ai]  # type: ignore[operator]
     state["agent_messages"] = messages
 
     # Route decision: if there are tool calls and iteration budget remains, go to tools
@@ -113,20 +147,24 @@ def experts_model_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
-def experts_tools_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def experts_tools_node(state: dict[str, Any]) -> dict[str, Any]:
     tools = get_default_tools()
     tool_node = ToolNode(tools)
-    messages: List[BaseMessage] = state.get("agent_messages") or []  # type: ignore[assignment]
+    messages: list[BaseMessage] = state.get("agent_messages") or []  # type: ignore[assignment]
     res = tool_node.invoke({"messages": messages})
-    new_messages: List[BaseMessage] = res.get("messages", [])  # type: ignore[assignment]
-    state["agent_messages"] = new_messages
+    tool_msgs = res.get("messages", [])  # type: ignore[assignment]
+    # Ensure we preserve the prior conversation and append tool messages
+    if isinstance(tool_msgs, list):
+        state["agent_messages"] = [*messages, *tool_msgs]
+    else:
+        state["agent_messages"] = messages
     state["experts_iterations"] = int(state.get("experts_iterations", 0)) + 1
     return state
 
 
-def _merge_tool_outputs_into_state(state: Dict[str, Any]) -> None:
+def _merge_tool_outputs_into_state(state: dict[str, Any]) -> None:
     # Parse ToolMessage outputs (JSON strings) and merge into reports
-    messages: List[Any] = state.get("agent_messages") or []
+    messages: list[Any] = state.get("agent_messages") or []
     sec = state.get("security_report") or {"vulnerabilities": []}
     qual = state.get("quality_report") or {"metrics": {}, "issues": []}
 
@@ -148,7 +186,9 @@ def _merge_tool_outputs_into_state(state: Dict[str, Any]) -> None:
                 qm = qual.get("metrics") or {}
                 # Prefer max for worst, mean for avg when both exist
                 qm["avg"] = float(metrics.get("avg", qm.get("avg", 0.0)))
-                qm["worst"] = max(float(metrics.get("worst", 0.0)), float(qm.get("worst", 0.0) or 0.0))
+                qm["worst"] = max(
+                    float(metrics.get("worst", 0.0)), float(qm.get("worst", 0.0) or 0.0)
+                )
                 qm["count"] = int(metrics.get("count", qm.get("count", 0)))
                 qual["metrics"] = qm
 
@@ -156,12 +196,10 @@ def _merge_tool_outputs_into_state(state: Dict[str, Any]) -> None:
     state["quality_report"] = qual
 
 
-def experts_finalize_node(state: Dict[str, Any]) -> Dict[str, Any]:
+def experts_finalize_node(state: dict[str, Any]) -> dict[str, Any]:
     # Merge tool outputs and log
-    try:
+    with suppress(Exception):
         _merge_tool_outputs_into_state(state)
-    except Exception:
-        pass
 
     logs = state.get("tool_logs") or []
     logs.append(
@@ -175,7 +213,7 @@ def experts_finalize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     state["tool_logs"] = logs
     state["progress"] = min(100.0, float(state.get("progress", 0.0)) + 10.0)
     # Store merged reports to semantic cache
-    try:
+    with suppress(Exception):
         settings = get_settings()
         cache = get_semantic_cache(settings)
         lang = state.get("language") or "unknown"
@@ -187,6 +225,4 @@ def experts_finalize_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "bug_report": state.get("bug_report"),
         }
         cache.set(query, value, namespace="experts")
-    except Exception:
-        pass
     return state

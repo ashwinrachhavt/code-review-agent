@@ -45,4 +45,3 @@ def get_checkpointer(settings: Settings) -> Any:
     if MemorySaver is None:  # pragma: no cover
         raise RuntimeError("No available LangGraph checkpointer backend found.")
     return MemorySaver()
-

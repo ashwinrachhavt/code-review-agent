@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import List
-
 from fastapi.testclient import TestClient
 
 
@@ -23,7 +21,7 @@ def test_explain_streaming_fallback_markdown(app, monkeypatch) -> None:
     }
     with client.stream("POST", "/explain", json=payload) as r:
         assert r.status_code == 200
-        chunks: List[str] = []
+        chunks: list[str] = []
         for line in r.iter_text():
             if not line:
                 continue
@@ -36,4 +34,3 @@ def test_explain_streaming_fallback_markdown(app, monkeypatch) -> None:
     assert "# Code Review" in body
     # Some section content
     assert "## Security" in body or "## Quality" in body
-

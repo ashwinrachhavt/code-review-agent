@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from tools.security_tooling import scan_bandit, scan_semgrep
 from graph.tools.radon_tool import radon_complexity_tool
+from tools.security_tooling import scan_bandit, scan_semgrep
 
 
 def test_bandit_and_semgrep_shape(monkeypatch) -> None:
@@ -19,4 +19,3 @@ def test_radon_tool_returns_json() -> None:
     data = json.loads(report_s)
     assert "metrics" in data
     assert all(k in data["metrics"] for k in ("avg", "worst", "count"))
-

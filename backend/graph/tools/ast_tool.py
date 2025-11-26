@@ -7,7 +7,7 @@ Parses Python code and returns a short summary of functions/classes.
 
 import ast
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 from langchain_core.tools import tool  # type: ignore
 
@@ -32,18 +32,17 @@ def ast_summary_tool(code: str) -> str:
     except Exception as e:  # pragma: no cover
         return json.dumps({"error": str(e)})
 
-    funcs: List[str] = []
-    classes: List[str] = []
+    funcs: list[str] = []
+    classes: list[str] = []
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             funcs.append(node.name)
         elif isinstance(node, ast.ClassDef):
             classes.append(node.name)
 
-    summary: Dict[str, Any] = {
+    summary: dict[str, Any] = {
         "functions": funcs,
         "classes": classes,
         "counts": {"functions": len(funcs), "classes": len(classes)},
     }
     return json.dumps(summary)
-

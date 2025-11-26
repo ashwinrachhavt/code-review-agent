@@ -7,8 +7,6 @@ Loads prompts from files alongside this module with simple LRU caching.
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
-
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -33,4 +31,3 @@ def get_prompt(name: str) -> str:
         return path.read_text(encoding="utf-8")
     except Exception:
         return ""
-
