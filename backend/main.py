@@ -17,16 +17,26 @@ try:
 except Exception:
     pass
 
-from app.api.explain import router as explain_router
-from app.core.config import get_settings
-from app.core.logging import setup_logging
-from graph.graph import build_graph
+from backend.app.api.explain import router as explain_router
+from backend.app.core.config import get_settings
+from backend.app.core.logging import setup_logging
+from backend.graph.graph import build_graph
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Code Explanation Agent")
+
+    # Enable LangChain's native LLM cache to avoid repeated calls.
+    # Falls back silently if libraries are unavailable.
+    try:  # pragma: no cover - optional
+        from langchain.globals import set_llm_cache  # type: ignore
+        from langchain.cache import InMemoryCache  # type: ignore
+
+        set_llm_cache(InMemoryCache())
+    except Exception:
+        pass
 
     app.add_middleware(
         CORSMiddleware,

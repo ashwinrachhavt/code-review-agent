@@ -8,7 +8,7 @@ Runs Semgrep (if installed) with auto-config and returns JSON findings.
 import json
 
 from langchain_core.tools import tool  # type: ignore
-from tools.security_tooling import scan_semgrep
+from backend.tools.security_tooling import scan_semgrep
 
 
 @tool("semgrep_scan")

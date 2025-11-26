@@ -19,7 +19,7 @@ with suppress(Exception):
     load_dotenv()  # CWD
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
 
-from .core.config import get_settings
+from backend.app.core.config import get_settings
 
 
 def _create() -> Celery:
@@ -48,7 +48,7 @@ def _create() -> Celery:
     # Ensure tasks are imported for registration regardless of import path
     # Import placed after app creation to avoid circular import issues
     with suppress(Exception):
-        from .workers import tasks as _tasks  # noqa: F401
+        from backend.app.workers import tasks as _tasks  # noqa: F401
     return app
 
 

@@ -26,7 +26,11 @@ COMMON_BUG_PATTERNS = [
 
 
 def _complexity_summary(code: str) -> dict[str, Any]:
-    blocks = cc_visit(code or "")
+    try:
+        blocks = cc_visit(code or "")
+    except Exception:
+        # If parsing fails (non-Python text or syntax error), return empty metrics
+        blocks = []
     scores = [getattr(b, "complexity", 0.0) for b in blocks]
     avg = statistics.fmean(scores) if scores else 0.0
     worst = max(scores) if scores else 0.0

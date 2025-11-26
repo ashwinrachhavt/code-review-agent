@@ -1,4 +1,5 @@
 # Code Explanation Agent - Take Home Project
+/Users/ashwin/Applications/Master/code-review-agent/frontend/public/agent-chat.png
 
 Build an AI agent that explains code using natural language.
 
@@ -55,6 +56,26 @@ npm run dev
 ```
 
 Visit http://localhost:3000
+
+### Chat E2E (Backend + Frontend)
+
+```bash
+# 1) Backend (terminal A)
+make install-backend
+make run-backend   # serves FastAPI on http://localhost:8000
+
+# 2) Frontend (terminal B)
+cd frontend
+pnpm install || npm install
+# Optional: point to backend if not default
+export NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+pnpm dev || npm run dev  # serves Next.js on http://localhost:3000
+
+# 3) Open http://localhost:3000 and use the Chat page
+#    - Paste code and click Run (starts a chat thread)
+#    - Ask follow-up questions in the input (same thread)
+#    - Responses stream with progress and avoid duplicate paragraphs per thread
+```
 
 ## 📋 Requirements
 
@@ -166,7 +187,7 @@ Good luck! 🚀
 ### Architecture Overview
 
 - Backend (`backend/`): FastAPI `/explain` streams incremental output. A small multi-agent flow runs Quality, Bug, Security heuristics, then optional Bandit + Semgrep tooling, and finally an OpenAI synthesis that streams tokens. Progress markers are emitted as `:::progress: <0-100>` lines.
-- Graph (`backend/graph/…`): Minimal nodes per expert plus a synthesis prompt builder.
+- Graph (`backend/graph/…`): Minimal nodes per expert plus a synthesis prompt builder. Uses LangGraph checkpointers (in-memory by default).
 - Tools (`backend/tools/security_tooling.py`): Optional wrappers for Bandit and Semgrep with graceful fallbacks.
 - Frontend (`frontend/`): React + CopilotKit UI. `CodeExplainer` performs a streaming `fetch` to `/explain`, renders activity logs, and shows a progress bar and streamed report.
 
@@ -174,7 +195,7 @@ Good luck! 🚀
 
 - Plain text chunked streaming keeps the runtime simple while remaining compatible with CopilotKit UI. The client parses progress markers and shows activity logs for a responsive UX.
 - Bandit/Semgrep integrated as optional tools: if not installed/unavailable, the server reports and continues.
-- OpenAI synthesis is lazy-imported and guarded; if `OPENAI_API_KEY` is missing, we still stream a heuristic report.
+- LangChain's native LLM cache is enabled in memory to reduce duplicate model calls. No custom semantic cache.
 
 ### How to Test
 

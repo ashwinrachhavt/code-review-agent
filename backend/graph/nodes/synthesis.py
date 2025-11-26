@@ -10,9 +10,7 @@ import json
 from contextlib import suppress
 from typing import Any
 
-from app.core.config import get_settings
-
-from ..memory.semantic_cache import build_query_string, get_semantic_cache
+from backend.app.core.config import get_settings
 
 try:
     from langchain_core.messages import HumanMessage, SystemMessage  # type: ignore
@@ -22,7 +20,7 @@ except Exception:  # pragma: no cover
     SystemMessage = None  # type: ignore
     HumanMessage = None  # type: ignore
 
-from prompts.loader import get_prompt
+from backend.prompts.loader import get_prompt
 
 SYNTHESIS_SYSTEM_PROMPT = (
     get_prompt("synthesis_system")
@@ -30,7 +28,8 @@ SYNTHESIS_SYSTEM_PROMPT = (
 )
 CHAT_SYSTEM_PROMPT = (
     "You are a concise code review assistant. Answer the user's question about the existing review "
-    "without repeating the whole review. Prefer short bullets with line numbers if relevant."
+    "without repeating the whole review. Prefer short bullets with line numbers if relevant. "
+    "Avoid repeating content you've already sent earlier in this thread; add new value or be brief."
 )
 
 
@@ -193,38 +192,7 @@ def synthesis_node(state: dict[str, Any]) -> dict[str, Any]:
     final_text: str | None = None
 
     # Semantic cache lookup (based on code + current reports)
-    with suppress(Exception):
-        sections = {
-            k: state.get(k)
-            for k in ("security_report", "quality_report", "bug_report")
-            if state.get(k) is not None
-        }
-        lang = state.get("language") or "unknown"
-        query = build_query_string(
-            "synthesis",
-            f"lang={lang}",
-            (state.get("code", "") or "")[:2000],
-            json.dumps(sections, sort_keys=True)[:1000],
-        )
-        cache = get_semantic_cache(settings)
-        hit = cache.get(query, namespace="synthesis", min_score=0.93)
-        if hit and isinstance(hit.get("value"), dict):
-            cached = hit["value"]
-            text = cached.get("text") if isinstance(cached, dict) else None
-            if isinstance(text, str) and text.strip():
-                state["final_report"] = text
-                logs = state.get("tool_logs") or []
-                logs.append(
-                    {
-                        "id": "semantic-cache",
-                        "agent": "synthesis",
-                        "message": "Semantic cache hit for synthesis.",
-                        "status": "hit",
-                    }
-                )
-                state["tool_logs"] = logs
-                state["progress"] = min(100.0, float(state.get("progress", 0.0)) + 30.0)
-                return state
+    # No custom semantic cache; rely on LangChain LLM cache for model outputs.
 
     if settings.OPENAI_API_KEY and ChatOpenAI is not None and SystemMessage is not None:
         try:
@@ -243,12 +211,7 @@ def synthesis_node(state: dict[str, Any]) -> dict[str, Any]:
             final_text = _fallback_markdown(state)
 
     state["final_report"] = final_text
-    # Store to semantic cache
-    with suppress(Exception):
-        cache = get_semantic_cache(settings)
-        cache.set(
-            query, {"text": final_text, "model": settings.OPENAI_MODEL}, namespace="synthesis"
-        )
+    # No custom semantic cache persistence.
     logs = state.get("tool_logs") or []
     logs.append(
         {

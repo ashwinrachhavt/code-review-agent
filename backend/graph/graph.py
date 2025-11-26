@@ -9,21 +9,21 @@ Nodes are added here and edges defined using standard LangGraph patterns.
 import os
 from typing import Any
 
-from app.core.config import Settings, get_settings
+from backend.app.core.config import Settings, get_settings
 from langgraph.graph import END, START, StateGraph  # type: ignore
 
-from .memory.redis_checkpoint import get_checkpointer
-from .nodes.llm_experts import (
+from backend.graph.memory.redis_checkpoint import get_checkpointer
+from backend.graph.nodes.llm_experts import (
     experts_finalize_node,
     experts_model_node,
     experts_tools_node,
 )
-from .nodes.router import router_node
-from .nodes.security_analysis import security_analysis_node
-from .nodes.static_analysis import static_analysis_node
-from .nodes.synthesis import synthesis_node
-from .nodes.chat_mode import chat_mode_node
-from .state import CodeReviewState
+from backend.graph.nodes.router import router_node
+from backend.graph.nodes.security_analysis import security_analysis_node
+from backend.graph.nodes.static_analysis import static_analysis_node
+from backend.graph.nodes.synthesis import synthesis_node
+from backend.graph.nodes.chat_mode import chat_mode_node
+from backend.graph.state import CodeReviewState
 
 
 def _persist_node(state: dict[str, Any]) -> dict[str, Any]:

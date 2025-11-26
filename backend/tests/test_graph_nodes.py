@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from graph.graph import build_graph
-from graph.nodes.router import router_node
-from graph.nodes.security_analysis import security_analysis_node
-from graph.nodes.static_analysis import static_analysis_node
-from graph.state import initial_state
+from backend.graph.graph import build_graph
+from backend.graph.nodes.router import router_node
+from backend.graph.nodes.security_analysis import security_analysis_node
+from backend.graph.nodes.static_analysis import static_analysis_node
+from backend.graph.state import initial_state
 
 
 def test_nodes_static_and_security_reports() -> None:

@@ -75,7 +75,7 @@ test-backend:
 run: run-backend
 
 run-backend:
-	$(UVICORN) backend.main:app --reload
+	PYTHONPATH=$(BACKEND_DIR) $(UVICORN) backend.main:app --reload
 
 run-frontend:
 	@if [ -d $(FRONTEND_DIR) ]; then \

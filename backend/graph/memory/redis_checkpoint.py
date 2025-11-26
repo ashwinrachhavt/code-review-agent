@@ -8,7 +8,7 @@ ensures per-thread resumability using LangGraph's `thread_id` concept.
 
 from typing import Any
 
-from app.core.config import Settings
+from backend.app.core.config import Settings
 
 try:  # Prefer RedisSaver when available
     from langgraph.checkpoint.redis import RedisSaver  # type: ignore

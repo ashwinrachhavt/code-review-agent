@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from graph.tools.radon_tool import radon_complexity_tool
-from tools.security_tooling import scan_bandit, scan_semgrep
+from backend.graph.tools.radon_tool import radon_complexity_tool
+from backend.tools.security_tooling import scan_bandit, scan_semgrep
 
 
 def test_bandit_and_semgrep_shape(monkeypatch) -> None:

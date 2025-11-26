@@ -1,32 +1,70 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { streamExplain } from "../lib/streamingClient";
+import { useState, useRef, useEffect } from "react";
+import { streamFromRoute } from "../lib/streamingClient";
 import ProgressBar from "../components/ProgressBar";
 import CodeEditor from "../components/CodeEditor";
+import { MemoryPanel } from "./MemoryPanel";
 import {
     Conversation,
     ConversationContent,
     ConversationEmptyState,
     ConversationScrollButton,
 } from "../components/ai-elements/conversation";
-import { Message, MessageContent, MessageResponse, MessageToolbar } from "../components/ai-elements/message";
+import { Message, MessageContent, MessageResponse, MessageToolbar, MessageActions, MessageAction } from "../components/ai-elements/message";
+import { CopyIcon, RefreshCwIcon } from "lucide-react";
 
 export type ChatMessage = {
+    id?: string;
     role: "user" | "assistant";
     content: string;
 };
+
+// Helper to extract agent badge from message content
+function extractAgentBadge(content: string): { badge: string | null; cleanContent: string } {
+    const badgeMatch = content.match(/^\*\*([^*]+)\*\*\n\n/);
+    if (badgeMatch) {
+        return {
+            badge: badgeMatch[1],
+            cleanContent: content.slice(badgeMatch[0].length)
+        };
+    }
+    return { badge: null, cleanContent: content };
+}
 
 export default function Chat() {
     const [code, setCode] = useState("");
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [progress, setProgress] = useState(0);
     const [running, setRunning] = useState(false);
+    const [chatInput, setChatInput] = useState("");
+
+    // Stable thread id for this Chat session to enable backend memory (client-only)
+    const [threadId, setThreadId] = useState<string>("");
+    const [mounted, setMounted] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
 
-    const addMessage = (role: "user" | "assistant", content: string) => {
-        setMessages((prev) => [...prev, { role, content }]);
-    };
+    // Generate threadId on client to avoid SSR hydration mismatches
+    useEffect(() => {
+        setMounted(true);
+        try {
+            const key = "cra.threadId";
+            let tid = typeof window !== 'undefined' ? window.sessionStorage.getItem(key) || "" : "";
+            if (!tid) {
+                if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+                    tid = crypto.randomUUID();
+                } else {
+                    tid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                }
+                if (typeof window !== 'undefined') window.sessionStorage.setItem(key, tid);
+            }
+            setThreadId(tid);
+        } catch {
+            // Fallback if sessionStorage is unavailable
+            const tid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            setThreadId(tid);
+        }
+    }, []);
 
     const handleRun = async (codeStr: string) => {
         // Cancel any existing stream
@@ -35,34 +73,50 @@ export default function Chat() {
         setCode(codeStr);
         setRunning(true);
         setProgress(5);
-        addMessage("user", codeStr);
-        // Send to backend with mode=chat and empty query (initial analysis)
+
+        // Clear existing messages for a fresh analysis
+        setMessages([]);
+
+        // Add user message with code
+        const userMsg: ChatMessage = {
+            id: Date.now().toString(),
+            role: "user",
+            content: codeStr,
+        };
+        setMessages([userMsg]);
+
+        // Analyze once: send code to /api/analyze
         try {
-            await streamExplain(
-                { code: codeStr, mode: "chat" },
+            let assistantContent = "";
+            await streamFromRoute(
+                "/api/analyze",
+                { id: threadId, code: codeStr },
                 {
                     onChunk: (t) => {
-                        // Append to the latest assistant message or start a new one
+                        assistantContent += t;
+                        // Update the assistant message in real-time
                         setMessages((prev) => {
                             const last = prev[prev.length - 1];
                             if (last && last.role === "assistant") {
-                                last.content += t;
-                                return [...prev.slice(0, -1), last];
+                                return [
+                                    ...prev.slice(0, -1),
+                                    { ...last, content: assistantContent }
+                                ];
                             }
-                            return [...prev, { role: "assistant", content: t }];
+                            return [
+                                ...prev,
+                                { id: (Date.now() + 1).toString(), role: "assistant", content: t }
+                            ];
                         });
                     },
                     onProgress: (p) => setProgress(p),
                     onError: (e) => console.error(e),
-                    onDone: () => setRunning(false),
+                    onDone: () => {
+                        setRunning(false);
+                        // No-op; MemoryPanel will refresh on its own if needed
+                    },
                 },
-                {
-                    signal: abortRef.current.signal,
-                    baseUrl:
-                        process.env.NEXT_PUBLIC_BACKEND_URL ||
-                        process.env.NEXT_PUBLIC_API_BASE_URL ||
-                        "http://localhost:8000",
-                }
+                { signal: abortRef.current.signal }
             );
         } catch (e) {
             console.error(e);
@@ -71,43 +125,68 @@ export default function Chat() {
         }
     };
 
-    const handleChat = async (query: string) => {
+    const handleChatSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const q = chatInput.trim();
+        if (!q || running) return;
+
+        // Cancel any existing stream
         abortRef.current?.abort();
         abortRef.current = new AbortController();
         setRunning(true);
         setProgress(5);
-        addMessage("user", query);
+        setChatInput("");
+
+        // Add user message
+        const userMsg: ChatMessage = {
+            id: Date.now().toString(),
+            role: "user",
+            content: q
+        };
+
+        // Optimistically update UI
+        setMessages((prev) => [...prev, userMsg]);
+
         try {
-            await streamExplain(
-                { code, mode: "chat", chat_query: query },
+            let assistantContent = "";
+            // Send full history + new message
+            const history = [...messages, userMsg];
+
+            await streamFromRoute(
+                "/api/chat",
+                { id: threadId, messages: history, chat_query: q },
                 {
                     onChunk: (t) => {
+                        assistantContent += t;
                         setMessages((prev) => {
                             const last = prev[prev.length - 1];
                             if (last && last.role === "assistant") {
-                                last.content += t;
-                                return [...prev.slice(0, -1), last];
+                                return [
+                                    ...prev.slice(0, -1),
+                                    { ...last, content: assistantContent }
+                                ];
                             }
-                            return [...prev, { role: "assistant", content: t }];
+                            return [
+                                ...prev,
+                                { id: (Date.now() + 1).toString(), role: "assistant", content: t }
+                            ];
                         });
                     },
                     onProgress: (p) => setProgress(p),
                     onError: (e) => console.error(e),
                     onDone: () => setRunning(false),
                 },
-                {
-                    signal: abortRef.current.signal,
-                    baseUrl:
-                        process.env.NEXT_PUBLIC_BACKEND_URL ||
-                        process.env.NEXT_PUBLIC_API_BASE_URL ||
-                        "http://localhost:8000",
-                }
+                { signal: abortRef.current.signal }
             );
-        } catch (e) {
-            console.error(e);
+        } catch (err) {
+            console.error(err);
         } finally {
             setRunning(false);
         }
+    };
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
     };
 
     return (
@@ -115,40 +194,70 @@ export default function Chat() {
             <h1 style={{ fontSize: 22, marginBottom: 12 }}>Smart Multi‑Agent Chat</h1>
             <CodeEditor onRun={handleRun} disabled={running} />
             <ProgressBar value={progress} />
-            <Conversation className="mt-4 max-h-[400px] overflow-y-auto" role="log">
+            {/* Lightweight memory panel for context visibility (client-only to prevent hydration mismatches) */}
+            {mounted && threadId && <MemoryPanel threadId={threadId} />}
+            <Conversation className="mt-4 max-h-[500px] overflow-y-auto" role="log">
                 <ConversationContent>
                     {messages.length === 0 ? (
-                        <ConversationEmptyState title="No messages yet" description="Run code or ask a question to start the conversation." />
+                        <ConversationEmptyState
+                            title="No messages yet"
+                            description="Run code analysis or ask a question to start the conversation."
+                        />
                     ) : (
-                        messages.map((msg, i) => (
-                            <Message key={i} from={msg.role}>
-                                <MessageContent>
-                                    {msg.role === "assistant" ? (
-                                        <MessageResponse>{msg.content}</MessageResponse>
-                                    ) : (
-                                        msg.content
+                        messages.map((msg, i) => {
+                            const { badge, cleanContent } = msg.role === "assistant"
+                                ? extractAgentBadge(msg.content)
+                                : { badge: null, cleanContent: msg.content };
+
+                            return (
+                                <Message key={msg.id || i} from={msg.role}>
+                                    <MessageContent>
+                                        {msg.role === "assistant" ? (
+                                            <>
+                                                {badge && (
+                                                    <div style={{
+                                                        fontSize: '0.875rem',
+                                                        fontWeight: 600,
+                                                        marginBottom: '0.5rem',
+                                                        color: '#6366f1'
+                                                    }}>
+                                                        {badge}
+                                                    </div>
+                                                )}
+                                                <MessageResponse>{cleanContent}</MessageResponse>
+                                            </>
+                                        ) : (
+                                            <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                                        )}
+                                    </MessageContent>
+                                    {msg.role === "assistant" && (
+                                        <MessageActions>
+                                            <MessageAction
+                                                tooltip="Copy to clipboard"
+                                                onClick={() => copyToClipboard(cleanContent)}
+                                            >
+                                                <CopyIcon />
+                                            </MessageAction>
+                                        </MessageActions>
                                     )}
-                                </MessageContent>
-                            </Message>
-                        ))
+                                </Message>
+                            );
+                        })
                     )}
                 </ConversationContent>
                 <ConversationScrollButton />
                 <MessageToolbar>
                     {/* Simple input for follow‑up queries */}
-                    <input
-                        type="text"
-                        placeholder="Ask a follow‑up question..."
-                        disabled={running}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" && e.currentTarget.value.trim()) {
-                                const q = e.currentTarget.value.trim();
-                                e.currentTarget.value = "";
-                                handleChat(q);
-                            }
-                        }}
-                        style={{ width: "100%", padding: "8px" }}
-                    />
+                    <form onSubmit={handleChatSubmit} style={{ width: "100%" }}>
+                        <input
+                            type="text"
+                            placeholder="Ask a follow‑up question..."
+                            disabled={running}
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.currentTarget.value)}
+                            style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ddd" }}
+                        />
+                    </form>
                 </MessageToolbar>
             </Conversation>
         </main>

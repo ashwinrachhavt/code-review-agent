@@ -21,9 +21,9 @@ graph/orchestrator.py
 graph/state.py
 graph/memory/__init__.py
 graph/memory/redis_checkpoint.py
-graph/memory/semantic_cache.py
 graph/nodes/__init__.py
 graph/nodes/bug_hunter.py
+graph/nodes/chat_mode.py
 graph/nodes/llm_experts.py
 graph/nodes/quality_expert.py
 graph/nodes/router.py
@@ -44,3 +44,5 @@ prompts/loader.py
 tests/test_api_explain.py
 tests/test_graph_nodes.py
 tests/test_tools_security.py
+tools/__init__.py
+tools/security_tooling.py

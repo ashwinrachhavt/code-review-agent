@@ -4,7 +4,7 @@ from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from models.state import CodeReviewState
+from backend.models.state import CodeReviewState
 
 
 def detect_language_node(state: dict[str, Any]) -> dict[str, Any]:

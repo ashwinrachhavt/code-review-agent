@@ -9,7 +9,7 @@ For now, it simply annotates the state to indicate where LLM experts would run.
 import json
 from typing import Any
 
-from app.core.config import get_settings
+from backend.app.core.config import get_settings
 from langgraph.prebuilt import ToolNode  # type: ignore
 
 try:
@@ -27,10 +27,9 @@ except Exception:  # pragma: no cover
 
 from contextlib import suppress
 
-from prompts.loader import get_prompt
+from backend.prompts.loader import get_prompt
 
-from ..memory.semantic_cache import build_query_string, get_semantic_cache
-from ..tools import get_default_tools
+from backend.graph.tools import get_default_tools
 
 
 def _initial_messages(state: dict[str, Any]) -> list[Any]:
@@ -49,46 +48,7 @@ def _initial_messages(state: dict[str, Any]) -> list[Any]:
 
 def experts_model_node(state: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
-    # Semantic cache: if we've already computed experts reports for this code, reuse.
-    try:
-        lang = state.get("language") or "unknown"
-        code = (state.get("code", "") or "")[:3000]
-        query = build_query_string("experts", f"lang={lang}", code)
-        cache = get_semantic_cache(settings)
-        hit = cache.get(query, namespace="experts", min_score=0.93)
-        if hit and isinstance(hit.get("value"), dict):
-            data = hit["value"]
-            # Merge cached reports into state
-            if isinstance(data.get("security_report"), dict):
-                sec = state.get("security_report") or {"vulnerabilities": []}
-                cached = data["security_report"].get("vulnerabilities", [])
-                sec["vulnerabilities"] = (sec.get("vulnerabilities", []) or []) + list(cached or [])
-                state["security_report"] = sec
-            if isinstance(data.get("quality_report"), dict):
-                # Replace or merge metrics conservatively
-                q = state.get("quality_report") or {}
-                qm = q.get("metrics") or {}
-                cm = data["quality_report"].get("metrics") or {}
-                qm["avg"] = float(cm.get("avg", qm.get("avg", 0.0)))
-                qm["worst"] = max(float(cm.get("worst", 0.0)), float(qm.get("worst", 0.0) or 0.0))
-                qm["count"] = int(cm.get("count", qm.get("count", 0)))
-                q["metrics"] = qm
-                q["issues"] = q.get("issues", [])
-                state["quality_report"] = q
-            logs = state.get("tool_logs") or []
-            logs.append(
-                {
-                    "id": "semantic-cache",
-                    "agent": "experts",
-                    "message": "Semantic cache hit for experts.",
-                    "status": "hit",
-                }
-            )
-            state["tool_logs"] = logs
-            state["experts_next"] = "finalize"
-            return state
-    except Exception:
-        pass
+    # No custom semantic cache; rely on LangChain LLM cache and graph checkpointing.
     tools = get_default_tools()
     messages: list[BaseMessage] = state.get("agent_messages") or []  # type: ignore[assignment]
     if not messages:
@@ -201,6 +161,65 @@ def experts_finalize_node(state: dict[str, Any]) -> dict[str, Any]:
     with suppress(Exception):
         _merge_tool_outputs_into_state(state)
 
+    # Dedupe reports to avoid repeated recommendations across sources
+    try:
+        # Security: dedupe by (type, line) primarily; fall back to snippet text
+        sec = state.get("security_report") or {"vulnerabilities": []}
+        vulns = sec.get("vulnerabilities") or []
+        seen_keys: set[tuple] = set()
+        deduped: list[dict[str, Any]] = []
+        for v in vulns:
+            if not isinstance(v, dict):
+                continue
+            t = str(v.get("type", "")).lower()
+            ln = int(v.get("line") or -1)
+            sn = str(v.get("snippet", "")).strip().lower()[:100]
+            key = (t, ln, sn)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append(v)
+        sec["vulnerabilities"] = deduped
+        state["security_report"] = sec
+    except Exception:
+        ...
+
+    try:
+        # Quality: dedupe issues by (metric, line); keep highest score
+        qual = state.get("quality_report") or {"metrics": {}, "issues": []}
+        issues = qual.get("issues") or []
+        best: dict[tuple, dict[str, Any]] = {}
+        for it in issues:
+            if not isinstance(it, dict):
+                continue
+            key = (str(it.get("metric", "")).lower(), int(it.get("line") or -1))
+            cur = best.get(key)
+            if cur is None or float(it.get("score", 0.0)) > float(cur.get("score", 0.0)):
+                best[key] = it
+        qual["issues"] = list(best.values())
+        state["quality_report"] = qual
+    except Exception:
+        ...
+
+    try:
+        # Bugs: dedupe by (type, line)
+        bug = state.get("bug_report") or {"bugs": []}
+        bugs = bug.get("bugs") or []
+        seen: set[tuple] = set()
+        out: list[dict[str, Any]] = []
+        for b in bugs:
+            if not isinstance(b, dict):
+                continue
+            key = (str(b.get("type", "")).lower(), int(b.get("line") or -1))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(b)
+        bug["bugs"] = out
+        state["bug_report"] = bug
+    except Exception:
+        ...
+
     logs = state.get("tool_logs") or []
     logs.append(
         {
@@ -213,16 +232,5 @@ def experts_finalize_node(state: dict[str, Any]) -> dict[str, Any]:
     state["tool_logs"] = logs
     state["progress"] = min(100.0, float(state.get("progress", 0.0)) + 10.0)
     # Store merged reports to semantic cache
-    with suppress(Exception):
-        settings = get_settings()
-        cache = get_semantic_cache(settings)
-        lang = state.get("language") or "unknown"
-        code = (state.get("code", "") or "")[:3000]
-        query = build_query_string("experts", f"lang={lang}", code)
-        value = {
-            "security_report": state.get("security_report"),
-            "quality_report": state.get("quality_report"),
-            "bug_report": state.get("bug_report"),
-        }
-        cache.set(query, value, namespace="experts")
+    # No custom semantic cache persistence here.
     return state

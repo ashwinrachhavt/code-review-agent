@@ -1,4 +1,4 @@
-Backend service with FastAPI + LangGraph. Supports SSE streaming to the Next.js frontend and optional Celery + Redis offloading for high throughput.
+Backend service with FastAPI + LangGraph. Uses native LangGraph checkpointers and LangChain LLM cache. Supports SSE streaming to the Next.js frontend and optional Celery + Redis offloading for high throughput.
 
 Quick start
 - Create `.env` from `backend/.env.example` and fill keys.
@@ -9,5 +9,5 @@ Quick start
 
 Notes
 - When `USE_CELERY=1`, requests are streamed via Redis pub/sub from workers.
-- Semantic cache uses Redis automatically when reachable; otherwise in-memory.
+- LangChain LLM cache is enabled in-memory to avoid repeated model calls.
 - LangGraph checkpointer can be enabled by `LANGGRAPH_CHECKPOINTER=1`.
