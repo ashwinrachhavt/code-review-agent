@@ -184,26 +184,51 @@ Good luck! 🚀
 
 ---
 
-## 📝 Your Implementation (Fill this in)
+## 📝 Your Implementation
 
 ### Architecture Overview
 
-- Backend (`backend/`): FastAPI `/explain` streams incremental output. A small multi-agent flow runs Quality, Bug, Security heuristics, then optional Bandit + Semgrep tooling, and finally an OpenAI synthesis that streams tokens. Progress markers are emitted as `:::progress: <0-100>` lines.
-- Graph (`backend/graph/…`): Minimal nodes per expert plus a synthesis prompt builder. Uses LangGraph checkpointers (in-memory by default).
-- Tools (`backend/tools/security_tooling.py`): Optional wrappers for Bandit and Semgrep with graceful fallbacks.
+![Agent Chat UI](frontend/public/agent-chat.png)
+
+![Specialist Agent Chat](frontend/public/special-agent-chat.png)
+
+- Backend (`backend/`): FastAPI `/explain`, `/analyze`, `/chat` stream incremental output as Server‑Sent Events. A compact LangGraph flow runs Quality, Bug, Security heuristics, then optional Bandit + Semgrep tooling, and finally an OpenAI synthesis that streams tokens. Progress markers are emitted as `:::progress: <0-100>` lines.
+- Graph (`backend/graph/…`): Nodes per concern (router → static → security → experts loop → synthesis). Checkpointing via LangGraph (in‑memory by default, Redis optional).
+- Tools (`backend/tools/security_tooling.py`): Wrappers for Bandit and Semgrep with graceful fallbacks when tools are unavailable.
 - Frontend (`frontend/`): React + CopilotKit UI. `CodeExplainer` performs a streaming `fetch` to `/explain`, renders activity logs, and shows a progress bar and streamed report.
+
+#### Architecture Diagram (Mermaid)
+
+```mermaid
+graph LR
+    FE[Frontend: Next.js + CopilotKit] -- SSE /explain|/analyze|/chat --> API[FastAPI Router]
+    API --> LG[LangGraph App]
+    LG --> R[Router Node]
+    R --> SA[Static Analysis]
+    SA --> SEC[Security Analysis]
+    SEC --> EXP[Experts Loop]
+    EXP -- tools --> TOOLS[Bandit / Semgrep / Radon]
+    EXP -- LLM --> OAI[OpenAI Chat (optional)]
+    EXP --> SYN[Synthesis]
+    SYN --> PERSIST[Persist / Memory]
+    PERSIST -- publish --> PUB[Redis Pub/Sub (optional)]
+    PUB -- streamed lines --> FE
+
+    classDef opt fill:#f6f8fa,stroke:#bbb,color:#333;
+    class OAI,TOOLS,PUB opt;
+```
 
 ### Design Decisions
 
 - Plain text chunked streaming keeps the runtime simple while remaining compatible with CopilotKit UI. The client parses progress markers and shows activity logs for a responsive UX.
-- Bandit/Semgrep integrated as optional tools: if not installed/unavailable, the server reports and continues.
-- LangChain's native LLM cache is enabled in memory to reduce duplicate model calls. No custom semantic cache.
+- Bandit/Semgrep are optional; when missing, the server reports unavailability and continues so analysis remains robust in lean environments.
+- LangChain's in‑memory LLM cache reduces duplicate model calls without introducing external dependencies.
 
 ### How to Test
 
-1) Backend: `cd backend && uv sync && cp .env.example .env` then set `OPENAI_API_KEY`. Optional: `pip install semgrep`. Run `uv run uvicorn main:app --reload`.
-2) Frontend: `cd frontend && npm install && cp .env.example .env && npm run dev`.
-3) Paste code in the left panel and click Analyze. You should see activity logs, a progress bar moving to 100, and a streaming report. Without `OPENAI_API_KEY`, you still see a basic heuristic review.
+- Backend: `cd backend && uv sync && cp .env.example .env` then set `OPENAI_API_KEY`. Optional: `pip install semgrep`. Run `uv run uvicorn main:app --reload`.
+- Frontend: `cd frontend && npm install && cp .env.example .env && npm run dev`.
+- Paste code in the left panel and click Analyze. You should see activity logs, a progress bar moving to 100, and a streaming report. Without `OPENAI_API_KEY`, you still see a basic heuristic review.
 
 ### Future Improvements
 
