@@ -29,7 +29,11 @@ help:
 install: install-backend
 
 install-backend:
-	$(PYTHON) -m pip install -e $(BACKEND_DIR)
+	@if command -v uv >/dev/null 2>&1; then \
+		uv pip install --system -e $(BACKEND_DIR); \
+	else \
+		$(PYTHON) -m pip install -e $(BACKEND_DIR); \
+	fi
 
 install-frontend:
 	@if [ -d $(FRONTEND_DIR) ]; then \
@@ -45,7 +49,7 @@ install-frontend:
 lint: lint-backend lint-frontend
 
 lint-backend:
-	$(PYTHON) -m ruff check $(BACKEND_DIR)
+	$(PYTHON) -m ruff check $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml
 
 lint-frontend:
 	@if [ -d $(FRONTEND_DIR) ]; then \
@@ -61,12 +65,12 @@ lint-frontend:
 format: format-backend
 
 format-backend:
-	$(PYTHON) -m ruff format $(BACKEND_DIR)
+	$(PYTHON) -m ruff format $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml
 
 test: test-backend
 
 test-backend:
-	cd $(BACKEND_DIR) && pytest
+	pytest -c $(BACKEND_DIR)/pyproject.toml
 
 run: run-backend
 
