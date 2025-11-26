@@ -52,6 +52,7 @@ ignore = [
   "S104",  # host binding in local dev
   "S110",  # broad try/except patterns acceptable in tooling
   "S112",  # try/except/continue patterns acceptable in parsing
+  "C901",  # allow higher complexity in early iteration
 ]
 
 [tool.ruff.lint.per-file-ignores]

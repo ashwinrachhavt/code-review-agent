@@ -7,21 +7,22 @@ LangGraph nodes. Streaming is implemented via an async generator that listens
 to graph events and forwards progress markers and final output.
 """
 
+import asyncio
 import re
 import uuid
 from collections.abc import AsyncGenerator
-import asyncio
+from contextlib import suppress
 from typing import Any
 
+from app.core.models import ExplainRequest, Message
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from graph.state import initial_state
 
-from app.core.models import ExplainRequest, Message
+from ..celery_app import celery_app  # import to ensure tasks are registered
 from ..core.config import get_settings
 from ..core.redis_pubsub import pubsub_messages
-from ..celery_app import celery_app  # import to ensure tasks are registered
 from ..workers.tasks import run_graph_stream
-from graph.state import initial_state
 
 router = APIRouter()
 
@@ -68,7 +69,9 @@ async def health_celery() -> dict[str, Any]:
         info["task_error"] = str(e)
         task_ok = False
 
-    info["status"] = "ok" if (ctrl_ok and task_ok) else ("degraded" if (ctrl_ok or task_ok) else "error")
+    info["status"] = (
+        "ok" if (ctrl_ok and task_ok) else ("degraded" if (ctrl_ok or task_ok) else "error")
+    )
     return info
 
 
@@ -98,12 +101,10 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
     settings = get_settings()
 
     code = _extract_code(body)
-    if not code:
-        # Allow empty code for chat mode
-        if (body.mode or "") != "chat":
-            return StreamingResponse(
-                iter(["Please provide code to analyze.\n"]), media_type="text/plain"
-            )
+    if not code and (body.mode or "") != "chat":
+        return StreamingResponse(
+            iter(["Please provide code to analyze.\n"]), media_type="text/plain"
+        )
 
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
     history = _history_from_messages(body.messages)
@@ -113,7 +114,7 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
     state = initial_state(code=code, history=history, mode=mode, agents=agents)
     # Optional chat query for concise responses in synthesis
     try:
-        chat_q = getattr(body, 'chat_query', None) or request.headers.get('x-chat-query')
+        chat_q = getattr(body, "chat_query", None) or request.headers.get("x-chat-query")
         if chat_q:
             state["chat_query"] = str(chat_q)
     except Exception:
@@ -127,11 +128,8 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
         if settings.USE_CELERY:
             channel = f"sse:{settings.REDIS_NAMESPACE}:{thread_id}"
             # Dispatch background task
-            try:
+            with suppress(Exception):
                 run_graph_stream.delay(thread_id, state)
-            except Exception:
-                # Fallback to in-process streaming if Celery unavailable
-                pass
             # Stream messages from Redis pub/sub
             try:
                 async for msg in pubsub_messages(settings.REDIS_URL, channel):
@@ -175,20 +173,18 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
                             yield sse("🔐 Security heuristics complete.")
                         elif name == "experts_finalize":
                             yield sse("🤝 Experts merged tool findings.")
-                        elif name == "synthesis":
-                            # Guard: only emit final report once
-                            if not sent_report:
-                                text = out.get("final_report")
-                                if isinstance(text, str) and text:
-                                    for para in text.split("\n\n"):
-                                        p = para.strip()
-                                        if not p:
-                                            continue
-                                        if p in seen_paras:
-                                            continue
-                                        seen_paras.add(p)
-                                        yield sse(p)
-                                    sent_report = True
+                        elif name == "synthesis" and not sent_report:
+                            text = out.get("final_report")
+                            if isinstance(text, str) and text:
+                                for para in text.split("\n\n"):
+                                    p = para.strip()
+                                    if not p:
+                                        continue
+                                    if p in seen_paras:
+                                        continue
+                                    seen_paras.add(p)
+                                    yield sse(p)
+                                sent_report = True
                     elif etype == "on_end":
                         yield sse(":::progress: 100")
                 except Exception:

@@ -7,12 +7,12 @@ markdown rendering of the collected expert reports.
 """
 
 import json
+from contextlib import suppress
 from typing import Any
 
 from app.core.config import get_settings
 
 from ..memory.semantic_cache import build_query_string, get_semantic_cache
-from contextlib import suppress
 
 try:
     from langchain_core.messages import HumanMessage, SystemMessage  # type: ignore
@@ -54,7 +54,8 @@ def _messages_from_state(state: dict[str, Any]) -> list[Any]:
                     + chat_q
                     + "\n\nDo not repeat the full review. Use short bullets if useful."
                     + ("\n\nCode (for reference):\n\n" + code_snippet if code_snippet else "")
-                    + "\n\nReports (JSON):\n\n" + json.dumps(sections, indent=2)
+                    + "\n\nReports (JSON):\n\n"
+                    + json.dumps(sections, indent=2)
                     + ("\n\nHistory:\n\n" + json.dumps(history[-10:], indent=2) if history else "")
                 )
             ),
@@ -168,10 +169,14 @@ def _chat_fallback(state: dict[str, Any]) -> str:
     if suspects:
         parts.append("- Bugs: potential issues:\n")
         for b in suspects:
-            parts.append(f"  • Line {b.get('line')}: {b.get('type')} (conf {b.get('confidence')})\n")
+            parts.append(
+                f"  • Line {b.get('line')}: {b.get('type')} (conf {b.get('confidence')})\n"
+            )
 
     if not parts:
-        parts.append("- No additional insights; try @security or paste a code block for deeper analysis.\n")
+        parts.append(
+            "- No additional insights; try @security or paste a code block for deeper analysis.\n"
+        )
     return "".join(parts)
 
 

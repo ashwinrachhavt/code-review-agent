@@ -3,11 +3,13 @@ from __future__ import annotations
 """Redis pub/sub helpers for SSE streaming."""
 
 import asyncio
-from typing import AsyncGenerator
 import contextlib
+from collections.abc import AsyncGenerator
 
 
-async def pubsub_messages(redis_url: str, channel: str, *, poll_interval: float = 0.5) -> AsyncGenerator[str, None]:
+async def pubsub_messages(
+    redis_url: str, channel: str, *, poll_interval: float = 0.5
+) -> AsyncGenerator[str, None]:
     """Yield messages from a Redis pub/sub channel.
 
     This function uses a background thread via asyncio.to_thread to call

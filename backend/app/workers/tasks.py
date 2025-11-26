@@ -10,9 +10,10 @@ pub/sub channel, which the FastAPI SSE endpoint relays.
 from contextlib import suppress
 from typing import Any
 
+from graph.graph import build_graph
+
 from ..celery_app import celery_app
 from ..core.config import get_settings
-from graph.graph import build_graph
 
 
 def _sse_channel(thread_id: str) -> str:

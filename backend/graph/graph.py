@@ -6,12 +6,11 @@ This is the central entrypoint for constructing the multi-node workflow.
 Nodes are added here and edges defined using standard LangGraph patterns.
 """
 
-from typing import Any
 import os
-
-from langgraph.graph import END, START, StateGraph  # type: ignore
+from typing import Any
 
 from app.core.config import Settings, get_settings
+from langgraph.graph import END, START, StateGraph  # type: ignore
 
 from .memory.redis_checkpoint import get_checkpointer
 from .nodes.llm_experts import (
@@ -99,7 +98,7 @@ def build_graph(settings: Settings | None = None) -> Any:
     graph.add_edge("synthesis", "persist")
     graph.add_edge("persist", END)
 
-    # Checkpointer wiring (Redis preferred) – opt-in via env to simplify tests
+    # Checkpointer wiring (Redis preferred) - opt-in via env to simplify tests
     use_checkpointer = str(os.getenv("LANGGRAPH_CHECKPOINTER", "0")).lower() in {
         "1",
         "true",

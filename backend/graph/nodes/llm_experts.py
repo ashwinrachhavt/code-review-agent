@@ -9,9 +9,8 @@ For now, it simply annotates the state to indicate where LLM experts would run.
 import json
 from typing import Any
 
-from langgraph.prebuilt import ToolNode  # type: ignore
-
 from app.core.config import get_settings
+from langgraph.prebuilt import ToolNode  # type: ignore
 
 try:
     from langchain_core.messages import (
@@ -26,8 +25,9 @@ except Exception:  # pragma: no cover
     ChatOpenAI = None  # type: ignore
     SystemMessage = HumanMessage = AIMessage = ToolMessage = BaseMessage = object  # type: ignore
 
-from prompts.loader import get_prompt
 from contextlib import suppress
+
+from prompts.loader import get_prompt
 
 from ..memory.semantic_cache import build_query_string, get_semantic_cache
 from ..tools import get_default_tools

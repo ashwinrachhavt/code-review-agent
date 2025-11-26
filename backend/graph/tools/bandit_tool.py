@@ -8,7 +8,6 @@ Executes Bandit on Python code when available and returns JSON findings.
 import json
 
 from langchain_core.tools import tool  # type: ignore
-
 from tools.security_tooling import scan_bandit
 
 
