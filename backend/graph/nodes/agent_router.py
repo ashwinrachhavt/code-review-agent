@@ -24,66 +24,71 @@ Respond with ONLY the category name (security, quality, bug, or general)."""
 
 def classify_question(question: str) -> str:
     """Classify a user question into an agent category.
-    
+
     Args:
         question: The user's question
-        
+
     Returns:
         One of: 'security', 'quality', 'bug', 'general'
     """
     settings = get_settings()
-    
+
     # Simple keyword-based fallback
     q_lower = question.lower()
-    if any(word in q_lower for word in ['security', 'vulnerability', 'exploit', 'attack', 'injection', 'xss', 'sql']):
-        return 'security'
-    if any(word in q_lower for word in ['quality', 'complexity', 'maintainability', 'best practice', 'clean code']):
-        return 'quality'
-    if any(word in q_lower for word in ['bug', 'error', 'crash', 'exception', 'edge case', 'fail']):
-        return 'bug'
-    
+    if any(
+        word in q_lower
+        for word in ["security", "vulnerability", "exploit", "attack", "injection", "xss", "sql"]
+    ):
+        return "security"
+    if any(
+        word in q_lower
+        for word in ["quality", "complexity", "maintainability", "best practice", "clean code"]
+    ):
+        return "quality"
+    if any(word in q_lower for word in ["bug", "error", "crash", "exception", "edge case", "fail"]):
+        return "bug"
+
     # Try LLM classification if available
     if settings.OPENAI_API_KEY and ChatOpenAI is not None:
         try:
             llm = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.0)
-            messages = [
-                SystemMessage(content=ROUTER_SYSTEM_PROMPT),
-                HumanMessage(content=question)
-            ]
+            messages = [SystemMessage(content=ROUTER_SYSTEM_PROMPT), HumanMessage(content=question)]
             result = llm.invoke(messages)
-            category = str(getattr(result, 'content', '')).strip().lower()
-            if category in ['security', 'quality', 'bug', 'general']:
+            category = str(getattr(result, "content", "")).strip().lower()
+            if category in ["security", "quality", "bug", "general"]:
                 return category
         except Exception:
             pass
-    
-    return 'general'
+
+    return "general"
 
 
 def agent_router_node(state: dict[str, Any]) -> dict[str, Any]:
     """Route chat questions to appropriate specialized agent.
-    
+
     This node classifies the user's question and sets the agent context
     for downstream processing.
     """
-    chat_query = state.get('chat_query', '').strip()
-    
+    chat_query = state.get("chat_query", "").strip()
+
     if not chat_query:
-        state['agent_type'] = 'general'
+        state["agent_type"] = "general"
         return state
-    
+
     # Classify the question
     agent_type = classify_question(chat_query)
-    state['agent_type'] = agent_type
-    
+    state["agent_type"] = agent_type
+
     # Add to logs
-    logs = state.get('tool_logs', [])
-    logs.append({
-        'id': 'agent_router',
-        'agent': 'router',
-        'message': f'Routed to {agent_type} agent',
-        'status': 'completed'
-    })
-    state['tool_logs'] = logs
-    
+    logs = state.get("tool_logs", [])
+    logs.append(
+        {
+            "id": "agent_router",
+            "agent": "router",
+            "message": f"Routed to {agent_type} agent",
+            "status": "completed",
+        }
+    )
+    state["tool_logs"] = logs
+
     return state

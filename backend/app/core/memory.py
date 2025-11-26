@@ -10,13 +10,14 @@ thread to suppress duplicate responses.
 import hashlib
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:  # LangChain memory (optional)
     from langchain_community.chat_message_histories import (
         ChatMessageHistory as LCChatHistory,
     )  # type: ignore
     from langchain_core.messages import AIMessage, HumanMessage  # type: ignore
+
     _LC_AVAILABLE = True
 except Exception:  # pragma: no cover - depends on runtime
     LCChatHistory = None  # type: ignore
@@ -30,20 +31,20 @@ def _hash_text(text: str) -> str:
 
 @dataclass
 class _ThreadSlot:
-    last_report_hash: Optional[str] = None
-    last_report_text: Optional[str] = None
+    last_report_hash: str | None = None
+    last_report_text: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
     # Either LangChain ChatMessageHistory or a simple list of dicts
     history: Any = field(default=None)
     # Track previously streamed paragraphs to suppress repeats across turns
     seen_paragraphs: set[str] = field(default_factory=set)
     # Last structured reports from analyze phase
-    reports: Dict[str, Any] = field(default_factory=dict)
+    reports: dict[str, Any] = field(default_factory=dict)
 
 
 class ConversationMemory:
     def __init__(self) -> None:
-        self._slots: Dict[str, _ThreadSlot] = {}
+        self._slots: dict[str, _ThreadSlot] = {}
         self._lock = threading.Lock()
 
     # ---------- Slot management ----------
@@ -59,7 +60,7 @@ class ConversationMemory:
             return self._slots[thread_id]
 
     # ---------- Last report hash ----------
-    def get_last_report_hash(self, thread_id: str) -> Optional[str]:
+    def get_last_report_hash(self, thread_id: str) -> str | None:
         return self._get_slot(thread_id).last_report_hash
 
     def set_last_report_hash(self, thread_id: str, text: str) -> str:
@@ -106,7 +107,7 @@ class ConversationMemory:
         self._append(thread_id, "assistant", content)
         return True
 
-    def last_message(self, thread_id: str) -> Optional[Tuple[str, str]]:
+    def last_message(self, thread_id: str) -> tuple[str, str] | None:
         slot = self._get_slot(thread_id)
         with slot.lock:
             if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
@@ -123,7 +124,7 @@ class ConversationMemory:
                 m = slot.history[-1]
                 return str(m.get("role", "")), str(m.get("content", ""))
 
-    def last_assistant(self, thread_id: str) -> Optional[str]:
+    def last_assistant(self, thread_id: str) -> str | None:
         """Return the most recent assistant message content, if any."""
         slot = self._get_slot(thread_id)
         with slot.lock:
@@ -138,11 +139,11 @@ class ConversationMemory:
                         return str(m.get("content", ""))
                 return None
 
-    def get_history(self, thread_id: str, limit: int = 50) -> List[Dict[str, str]]:
+    def get_history(self, thread_id: str, limit: int = 50) -> list[dict[str, str]]:
         slot = self._get_slot(thread_id)
         with slot.lock:
             if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
-                out: List[Dict[str, str]] = []
+                out: list[dict[str, str]] = []
                 for m in slot.history.messages[-limit:]:  # type: ignore[attr-defined]
                     if isinstance(m, AIMessage):
                         out.append({"role": "assistant", "content": str(getattr(m, "content", ""))})
@@ -153,12 +154,12 @@ class ConversationMemory:
                 return list(slot.history[-limit:])
 
     # ---------- Seen paragraphs (for chat streaming dedupe across turns) ----------
-    def get_seen_paragraphs(self, thread_id: str) -> List[str]:
+    def get_seen_paragraphs(self, thread_id: str) -> list[str]:
         slot = self._get_slot(thread_id)
         with slot.lock:
             return list(slot.seen_paragraphs)
 
-    def add_seen_paragraphs(self, thread_id: str, paras: List[str]) -> None:
+    def add_seen_paragraphs(self, thread_id: str, paras: list[str]) -> None:
         if not paras:
             return
         slot = self._get_slot(thread_id)
@@ -169,7 +170,9 @@ class ConversationMemory:
                     slot.seen_paragraphs.add(s)
 
     # ---------- Analyze results (report + structured data) ----------
-    def set_analysis(self, thread_id: str, text: str, reports: Dict[str, Any] | None = None) -> None:
+    def set_analysis(
+        self, thread_id: str, text: str, reports: dict[str, Any] | None = None
+    ) -> None:
         slot = self._get_slot(thread_id)
         with slot.lock:
             slot.last_report_text = (text or "").strip() or None
@@ -178,7 +181,7 @@ class ConversationMemory:
             if reports is not None:
                 slot.reports = reports
 
-    def get_analysis(self, thread_id: str) -> Tuple[Optional[str], Dict[str, Any]]:
+    def get_analysis(self, thread_id: str) -> tuple[str | None, dict[str, Any]]:
         slot = self._get_slot(thread_id)
         with slot.lock:
             return slot.last_report_text, dict(slot.reports or {})

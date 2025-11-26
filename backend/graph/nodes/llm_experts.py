@@ -9,8 +9,9 @@ For now, it simply annotates the state to indicate where LLM experts would run.
 import json
 from typing import Any
 
-from backend.app.core.config import get_settings
 from langgraph.prebuilt import ToolNode  # type: ignore
+
+from backend.app.core.config import get_settings
 
 try:
     from langchain_core.messages import (
@@ -27,9 +28,8 @@ except Exception:  # pragma: no cover
 
 from contextlib import suppress
 
-from backend.prompts.loader import get_prompt
-
 from backend.graph.tools import get_default_tools
+from backend.prompts.loader import get_prompt
 
 
 def _initial_messages(state: dict[str, Any]) -> list[Any]:

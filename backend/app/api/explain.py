@@ -14,11 +14,13 @@ from collections.abc import AsyncGenerator
 from contextlib import suppress
 from typing import Any
 
-from backend.app.core.models import ExplainRequest, Message
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from backend.graph.state import initial_state
+
 from backend.app.core.memory import get_memory
+from backend.app.core.models import ExplainRequest, Message
+from backend.graph.state import initial_state
+
 try:  # Optional, used to avoid double-adding the same user message
     from langchain_core.messages import HumanMessage  # type: ignore
 except Exception:  # pragma: no cover
@@ -138,7 +140,9 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
             chat_q = getattr(body, "chat_query", None)
             if chat_q is None:
                 with suppress(Exception):  # type: ignore[reportGeneralTypeIssues]
-                    extra = getattr(body, "model_extra", None) or getattr(body, "__pydantic_extra__", None)
+                    extra = getattr(body, "model_extra", None) or getattr(
+                        body, "__pydantic_extra__", None
+                    )
                     if isinstance(extra, dict):
                         chat_q = extra.get("chat_query")
         if chat_q:
@@ -192,10 +196,12 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
         except Exception:
             seen_seed = []
         seen_paras: set[str] = set(seen_seed)
+
         # Stream graph events where possible for mid-flight updates
         # Lightweight semantic dedupe across paragraphs within this response
         def _too_similar(a: str, b: str) -> bool:
             import re
+
             ta = set(re.findall(r"[a-z0-9]+", a.lower()))
             tb = set(re.findall(r"[a-z0-9]+", b.lower()))
             if not ta or not tb:
@@ -204,6 +210,7 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
             union = len(ta | tb)
             sim = inter / union if union else 0.0
             return sim >= 0.85
+
         prior_paras: list[str] = []
         try:
             async for event in graph_app.astream_events(
@@ -401,7 +408,11 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
             if text:
                 if mode == "chat":
                     last_msg = mem.last_message(thread_id)
-                    if last_msg and last_msg[0] == "assistant" and (last_msg[1] or "").strip() == text.strip():
+                    if (
+                        last_msg
+                        and last_msg[0] == "assistant"
+                        and (last_msg[1] or "").strip() == text.strip()
+                    ):
                         msg = "(no new insights; try a different question)"
                         yield sse(msg)
                         streamed_chunks.append(msg)
@@ -468,6 +479,7 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
 
 # ---------- New: Split Analyze & Chat Endpoints ----------
 
+
 @router.post("/analyze")
 async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
     """Run full analysis and persist latest report/state to thread memory.
@@ -479,7 +491,9 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
     mem = get_memory()
     code = _extract_code(body)
     if not code:
-        return StreamingResponse(iter(["Please provide code to analyze.\n"]), media_type="text/plain")
+        return StreamingResponse(
+            iter(["Please provide code to analyze.\n"]), media_type="text/plain"
+        )
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
     agents = body.agents or ["quality", "bug", "security"]
     history = mem.get_history(thread_id, limit=20)
@@ -493,7 +507,9 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
         yield sse(":::progress: 5")
         streamed_chunks: list[str] = []
         try:
-            async for event in graph_app.astream_events(state, config={"configurable": {"thread_id": thread_id}}):
+            async for event in graph_app.astream_events(
+                state, config={"configurable": {"thread_id": thread_id}}
+            ):
                 etype = event.get("event")
                 name = event.get("name")
                 data = event.get("data", {})
@@ -532,7 +548,7 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
                 "bug_report": (final or {}).get("bug_report"),
             }
             text = (final or {}).get("final_report") or "\n\n".join(streamed_chunks)
-            
+
             # If we didn't stream any chunks during events, stream the final report now
             if not streamed_chunks and text:
                 for para in text.split("\n\n"):
@@ -540,7 +556,7 @@ async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
                     if p:
                         yield sse(p)
                         streamed_chunks.append(p)
-            
+
             try:
                 mem.set_analysis(thread_id, text or "", reports)
             except Exception:
@@ -586,10 +602,10 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
     settings = get_settings()
     mem = get_memory()
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
-    
+
     # Get the full message history from the request
     messages = body.messages or []
-    
+
     # Extract the latest user question
     chat_q = None
     if messages and messages[-1].role == "user":
@@ -597,103 +613,103 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
 
     # Pull latest analysis
     report_text, reports = mem.get_analysis(thread_id)
-    
+
     # Classify question and route to agent
     from backend.graph.nodes.agent_router import classify_question
-    agent_type = classify_question(chat_q) if chat_q else 'general'
-    
+
+    agent_type = classify_question(chat_q) if chat_q else "general"
+
     # Agent-specific prompts
     AGENT_PROMPTS = {
-        'security': """You are a Security Expert for code review. Focus on:
+        "security": """You are a Security Expert for code review. Focus on:
 - Security vulnerabilities and exploits
 - Authentication and authorization issues
 - Input validation and injection attacks
 - Cryptography and data protection
 Answer concisely with line numbers when relevant.""",
-        
-        'quality': """You are a Code Quality Expert. Focus on:
+        "quality": """You are a Code Quality Expert. Focus on:
 - Code complexity and maintainability
 - Best practices and design patterns
 - Code smells and refactoring opportunities
 - Performance and optimization
 Answer concisely with line numbers when relevant.""",
-        
-        'bug': """You are a Bug Detection Expert. Focus on:
+        "bug": """You are a Bug Detection Expert. Focus on:
 - Potential runtime errors and edge cases
 - Logic errors and incorrect implementations
 - Exception handling and error recovery
 - Type safety and null pointer issues
 Answer concisely with line numbers when relevant.""",
-        
-        'general': """You are a Code Review Assistant. Provide helpful explanations about the code and analysis.
-Answer concisely and reference specific findings when relevant."""
+        "general": """You are a Code Review Assistant. Provide helpful explanations about the code and analysis.
+Answer concisely and reference specific findings when relevant.""",
     }
-    
+
     # Build agent-specific prompt
-    agent_prompt = AGENT_PROMPTS.get(agent_type, AGENT_PROMPTS['general'])
-    
+    agent_prompt = AGENT_PROMPTS.get(agent_type, AGENT_PROMPTS["general"])
+
     # Agent emoji badges
     AGENT_BADGES = {
-        'security': '🔐 Security Agent',
-        'quality': '📊 Quality Agent',
-        'bug': '🐛 Bug Agent',
-        'general': '💬 Assistant'
+        "security": "🔐 Security Agent",
+        "quality": "📊 Quality Agent",
+        "bug": "🐛 Bug Agent",
+        "general": "💬 Assistant",
     }
-    
+
     try:
-        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
         from langchain_openai import ChatOpenAI
-        
+
         if settings.OPENAI_API_KEY:
             llm = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.2)
-            
+
             # Construct the prompt with agent-specific system message
             prompt_messages = [SystemMessage(content=agent_prompt)]
-            
+
             # Add the analysis context if available
             if report_text:
                 # Extract relevant section based on agent type
                 context_message = f"Here is the code analysis report:\n\n{report_text}\n\n"
-                
-                if agent_type == 'security' and reports:
-                    sec = reports.get('security_report', {})
+
+                if agent_type == "security" and reports:
+                    sec = reports.get("security_report", {})
                     if sec:
                         context_message += f"\nSecurity Details: {sec}\n"
-                elif agent_type == 'quality' and reports:
-                    qual = reports.get('quality_report', {})
+                elif agent_type == "quality" and reports:
+                    qual = reports.get("quality_report", {})
                     if qual:
                         context_message += f"\nQuality Details: {qual}\n"
-                elif agent_type == 'bug' and reports:
-                    bug = reports.get('bug_report', {})
+                elif agent_type == "bug" and reports:
+                    bug = reports.get("bug_report", {})
                     if bug:
                         context_message += f"\nBug Details: {bug}\n"
-                
-                context_message += "\nUse this context to answer the user's question. Be concise and specific."
+
+                context_message += (
+                    "\nUse this context to answer the user's question. Be concise and specific."
+                )
                 prompt_messages.append(SystemMessage(content=context_message))
-            
+
             # Add conversation history
             for m in messages:
                 if m.role == "user":
                     prompt_messages.append(HumanMessage(content=m.content))
                 elif m.role == "assistant":
                     prompt_messages.append(AIMessage(content=m.content))
-            
+
             # If no messages, we can't really chat
             if len(prompt_messages) <= 1:
-                 return StreamingResponse(iter(["Please ask a question."]), media_type="text/plain")
+                return StreamingResponse(iter(["Please ask a question."]), media_type="text/plain")
 
             # Stream the response with agent badge
             async def stream_response() -> AsyncGenerator[str, None]:
                 # Emit agent badge first
-                badge = AGENT_BADGES.get(agent_type, AGENT_BADGES['general'])
+                badge = AGENT_BADGES.get(agent_type, AGENT_BADGES["general"])
                 yield f"**{badge}**\n\n"
-                
+
                 async for chunk in llm.astream(prompt_messages):
                     if chunk.content:
                         yield chunk.content
 
             return StreamingResponse(stream_response(), media_type="text/plain")
-            
+
     except Exception as e:
         print(f"Error in chat: {e}")
 
@@ -701,15 +717,15 @@ Answer concisely and reference specific findings when relevant."""
     sec = (reports or {}).get("security_report") or {}
     qual = (reports or {}).get("quality_report") or {}
     bug = (reports or {}).get("bug_report") or {}
-    
-    badge = AGENT_BADGES.get(agent_type, AGENT_BADGES['general'])
+
+    badge = AGENT_BADGES.get(agent_type, AGENT_BADGES["general"])
     parts: list[str] = [f"**{badge}**\n\n"]
-    
+
     if chat_q:
         parts.append(f"Question: {chat_q}\n\n")
-    
+
     # Agent-specific fallback responses
-    if agent_type == 'security':
+    if agent_type == "security":
         vulns = (sec.get("vulnerabilities") or [])[:3]
         if vulns:
             parts.append("Security findings:\n")
@@ -717,10 +733,12 @@ Answer concisely and reference specific findings when relevant."""
                 parts.append(f"- Line {v.get('line')}: {v.get('type')} [{v.get('severity')}]\n")
         else:
             parts.append("No security vulnerabilities detected.\n")
-    elif agent_type == 'quality':
+    elif agent_type == "quality":
         m = qual.get("metrics") or {}
         if m:
-            parts.append(f"Quality metrics: worst={float(m.get('worst', 0.0)):.1f}, avg={float(m.get('avg', 0.0)):.2f}\n")
+            parts.append(
+                f"Quality metrics: worst={float(m.get('worst', 0.0)):.1f}, avg={float(m.get('avg', 0.0)):.2f}\n"
+            )
         issues = (qual.get("issues") or [])[:3]
         if issues:
             parts.append("\nQuality issues:\n")
@@ -728,17 +746,19 @@ Answer concisely and reference specific findings when relevant."""
                 parts.append(f"- Line {issue.get('line')}: {issue.get('suggestion')}\n")
         else:
             parts.append("No quality issues detected.\n")
-    elif agent_type == 'bug':
+    elif agent_type == "bug":
         bugs = (bug.get("bugs") or [])[:3]
         if bugs:
             parts.append("Potential bugs:\n")
             for b in bugs:
-                parts.append(f"- Line {b.get('line')}: {b.get('type')} (confidence: {b.get('confidence')})\n")
+                parts.append(
+                    f"- Line {b.get('line')}: {b.get('type')} (confidence: {b.get('confidence')})\n"
+                )
         else:
             parts.append("No bugs detected.\n")
     else:
         parts.append("Please ask a more specific question about security, quality, or bugs.\n")
-    
+
     answer_text = "".join(parts)
 
     # Stream the response

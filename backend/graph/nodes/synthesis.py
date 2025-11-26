@@ -7,7 +7,6 @@ markdown rendering of the collected expert reports.
 """
 
 import json
-from contextlib import suppress
 from typing import Any
 
 from backend.app.core.config import get_settings

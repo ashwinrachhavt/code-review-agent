@@ -31,8 +31,8 @@ def create_app() -> FastAPI:
     # Enable LangChain's native LLM cache to avoid repeated calls.
     # Falls back silently if libraries are unavailable.
     try:  # pragma: no cover - optional
-        from langchain.globals import set_llm_cache  # type: ignore
         from langchain.cache import InMemoryCache  # type: ignore
+        from langchain.globals import set_llm_cache  # type: ignore
 
         set_llm_cache(InMemoryCache())
     except Exception:
