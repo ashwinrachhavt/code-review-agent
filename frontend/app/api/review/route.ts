@@ -1,7 +1,10 @@
 // Allow up to 60s for long-running backend analyses
 export const maxDuration = 60;
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:8000";
 
 export async function POST(req: Request) {
   const { id, messages, agents, mode, code, entry, chat_query } = await req.json();

@@ -70,7 +70,7 @@ format-backend:
 test: test-backend
 
 test-backend:
-	pytest -c $(BACKEND_DIR)/pyproject.toml
+	$(PYTHON) -m pytest -c $(BACKEND_DIR)/pyproject.toml
 
 run: run-backend
 

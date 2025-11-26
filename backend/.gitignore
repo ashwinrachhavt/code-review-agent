@@ -8,11 +8,3 @@ __pycache__/
 .idea/
 *.swp
 uv.lock
-
-
-*
-*.venv
-
-.venv
-
-*venv

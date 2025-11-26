@@ -119,6 +119,9 @@ async def explain(request: Request, body: ExplainRequest) -> StreamingResponse:
             state["chat_query"] = str(chat_q)
     except Exception:
         pass
+    # Set chat_mode flag for downstream nodes
+    if mode == "chat":
+        state["chat_mode"] = True
 
     def sse(data: str) -> str:
         return f"data: {data.rstrip()}\n\n"

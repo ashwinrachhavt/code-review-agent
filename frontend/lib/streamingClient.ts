@@ -10,6 +10,7 @@ export type ExplainPayload = {
   thread_id?: string;
   mode?: string;
   agents?: string[];
+  chat_query?: string;
 };
 
 // Simple SSE parser for fetch streams (POST + text/event-stream)

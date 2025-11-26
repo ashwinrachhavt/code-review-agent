@@ -22,6 +22,7 @@ from .nodes.router import router_node
 from .nodes.security_analysis import security_analysis_node
 from .nodes.static_analysis import static_analysis_node
 from .nodes.synthesis import synthesis_node
+from .nodes.chat_mode import chat_mode_node
 from .state import CodeReviewState
 
 
@@ -64,11 +65,13 @@ def build_graph(settings: Settings | None = None) -> Any:
     graph.add_node("experts_tools", experts_tools_node)
     graph.add_node("experts_finalize", experts_finalize_node)
     graph.add_node("synthesis", synthesis_node)
+    graph.add_node("chat_mode", chat_mode_node)
     graph.add_node("persist", _persist_node)
 
     # Edges
     graph.add_edge(START, "router")
-    graph.add_edge("router", "static_analysis")
+    graph.add_edge("router", "chat_mode")
+    graph.add_edge("chat_mode", "static_analysis")
     graph.add_edge("static_analysis", "security_analysis")
     graph.add_edge("security_analysis", "experts_model")
 
