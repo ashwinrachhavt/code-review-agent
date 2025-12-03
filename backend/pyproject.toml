@@ -10,17 +10,20 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.121.3",
-    "langgraph>=0.2.30",
+    "langgraph>=0.2.80",
     "langchain>=0.3.27",
     "langchain-core>=0.3.80",
     "langchain-openai>=0.2.14",
+    "langchain-community>=0.3.13",
     "pydantic>=2.12.4",
     "python-dotenv>=1.2.1",
     "uvicorn[standard]>=0.38.0",
     "radon>=6.0.1",
     "bandit>=1.7.9",
-    "celery>=5.4.0",
-    "redis>=5.0.8",
+    "vulture>=2.10", # optional; dead code finder
+    "qdrant-client>=1.9.0",
+    "semgrep>=1.62.0",
+    "SQLAlchemy>=2.0.30",
 ]
 
 [tool.setuptools.packages.find]
@@ -57,6 +60,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**.py" = ["S101"]
+"app/core/config.py" = ["RUF009"]
 
 [tool.ruff.format]
 quote-style = "double"

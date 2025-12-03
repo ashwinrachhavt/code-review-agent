@@ -1,26 +1,7 @@
 from __future__ import annotations
 
-"""Tool registry for the LangGraph agent.
+"""Graph tool package.
 
-Expose a helper to load the default analysis tools used by the LLM experts.
+Only includes specific submodules when imported directly. No global
+registration is performed here to keep import side-effects minimal.
 """
-
-from langchain_core.tools import BaseTool  # type: ignore
-
-from backend.graph.tools.bandit_tool import bandit_scan_tool
-from backend.graph.tools.radon_tool import radon_complexity_tool_def
-from backend.graph.tools.semgrep_tool import semgrep_scan_tool
-
-# from .ast_tool import ast_summary_tool  # optional
-
-
-def get_default_tools() -> list[BaseTool]:
-    """Return the default tool set for code review experts.
-
-    Includes:
-    - Bandit (Python security)
-    - Semgrep (generic security patterns)
-    - Radon (cyclomatic complexity)
-    """
-
-    return [bandit_scan_tool, semgrep_scan_tool, radon_complexity_tool_def]

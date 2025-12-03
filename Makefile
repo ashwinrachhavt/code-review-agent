@@ -1,5 +1,8 @@
 SHELL := /bin/bash
 
+# Avoid .pyc/__pycache__ creation across all Python invocations
+export PYTHONDONTWRITEBYTECODE=1
+
 # Paths
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
@@ -8,27 +11,35 @@ FRONTEND_DIR := frontend
 PYTHON ?= python3
 UVICORN ?= uvicorn
 
-.PHONY: help install install-backend install-frontend lint lint-backend lint-frontend \
+.PHONY: help install install-backend install-frontend lint lint-all lint-backend lint-frontend \
 	format format-backend test test-backend run run-backend run-frontend pre-commit-install ci \
-	run-redis run-worker health-celery
+	clean clean-pyc clean-egg purge
 
 help:
 	@echo "Common tasks:"
 	@echo "  make install            # install backend (editable)"
-	@echo "  make lint               # ruff + next lint (if pnpm present)"
+	@echo "  make lint-backend       # ruff (backend)"
+	@echo "  make lint-frontend      # next lint (frontend)"
+	@echo "  make lint-all           # backend + frontend lint"
 	@echo "  make format             # ruff format backend"
 	@echo "  make test               # pytest (backend)"
 	@echo "  make run-backend        # start FastAPI with uvicorn"
 	@echo "  make run-frontend       # start Next.js dev server (pnpm)"
-	@echo "  make run-redis          # start Redis (docker)"
-	@echo "  make run-worker         # start Celery worker (requires Redis)"
-	@echo "  make health-celery      # check /health/celery endpoint"
 	@echo "  make pre-commit-install # install pre-commit hooks for backend"
 	@echo "  make ci                 # lint + tests (backend)"
+	@echo "  make clean              # remove __pycache__, *.pyc, *.egg-info"
 
 install: install-backend
 
 install-backend:
+	@if command -v uv >/dev/null 2>&1; then \
+		uv pip install --system $(BACKEND_DIR); \
+	else \
+		$(PYTHON) -m pip install $(BACKEND_DIR); \
+	fi
+
+# Optional: editable install (will create an egg-info directory). Avoid in CI.
+install-backend-editable:
 	@if command -v uv >/dev/null 2>&1; then \
 		uv pip install --system -e $(BACKEND_DIR); \
 	else \
@@ -46,7 +57,11 @@ install-frontend:
 		echo "$(FRONTEND_DIR) not found, skipping"; \
 	fi
 
-lint: lint-backend lint-frontend
+# Default lint runs backend only; use lint-all for both
+lint: lint-backend
+
+# Run both linters
+lint-all: lint-backend lint-frontend
 
 lint-backend:
 	$(PYTHON) -m ruff check $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml
@@ -88,16 +103,24 @@ run-frontend:
 		echo "$(FRONTEND_DIR) not found"; \
 	fi
 
-run-redis:
-	@docker run --rm -p 6379:6379 --name code-review-redis redis:7-alpine
-
-run-worker:
-	celery -A backend.app.celery_app.celery_app worker -l info -Q celery -c 2
-
-health-celery:
-	@curl -s http://localhost:8000/health/celery | python -m json.tool
-
 pre-commit-install:
 	cd $(BACKEND_DIR) && pre-commit install
 
 ci: lint-backend test-backend
+
+# Cleaning helpers
+clean: clean-pyc clean-egg
+
+clean-pyc:
+	@echo "Removing Python cache files and __pycache__ directories..."
+	@find . -type f -name '*.py[co]' -delete || true
+	@find . -type d -name '__pycache__' -prune -exec rm -rf {} + || true
+	@find . -type d -name '.pytest_cache' -prune -exec rm -rf {} + || true
+	@find . -type d -name '.ruff_cache' -prune -exec rm -rf {} + || true
+
+clean-egg:
+	@echo "Removing egg-info metadata directories..."
+	@find . -type d -name '*.egg-info' -prune -exec rm -rf {} + || true
+
+# Alias
+purge: clean

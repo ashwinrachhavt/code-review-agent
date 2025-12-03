@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-"""Lightweight per-thread conversation memory.
+"""Lightweight per-thread conversation memory and analysis cache.
 
-Prefers LangChain's ChatMessageHistory if available, and falls back to a
-minimal in-process implementation. Also tracks the last full report hash per
-thread to suppress duplicate responses.
+Provides an in-process memory store keyed by `thread_id`, with:
+- message history (user/assistant)
+- last analysis report hash/text
+- structured reports (security/quality/bug)
+
+Optional: if LangChain chat history is available, uses it; otherwise a simple
+list of dicts is used. This module is intentionally dependency-light.
 """
 
 import hashlib
@@ -12,14 +16,14 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-try:  # LangChain memory (optional)
+try:  # optional LangChain chat memory
     from langchain_community.chat_message_histories import (
         ChatMessageHistory as LCChatHistory,
-    )  # type: ignore
+    )
     from langchain_core.messages import AIMessage, HumanMessage  # type: ignore
 
     _LC_AVAILABLE = True
-except Exception:  # pragma: no cover - depends on runtime
+except Exception:  # pragma: no cover
     LCChatHistory = None  # type: ignore
     AIMessage = HumanMessage = object  # type: ignore
     _LC_AVAILABLE = False
@@ -34,11 +38,7 @@ class _ThreadSlot:
     last_report_hash: str | None = None
     last_report_text: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
-    # Either LangChain ChatMessageHistory or a simple list of dicts
-    history: Any = field(default=None)
-    # Track previously streamed paragraphs to suppress repeats across turns
-    seen_paragraphs: set[str] = field(default_factory=set)
-    # Last structured reports from analyze phase
+    history: Any = field(default=None)  # LCChatHistory or list[dict]
     reports: dict[str, Any] = field(default_factory=dict)
 
 
@@ -47,19 +47,19 @@ class ConversationMemory:
         self._slots: dict[str, _ThreadSlot] = {}
         self._lock = threading.Lock()
 
-    # ---------- Slot management ----------
+    # ---- slot management ----
     def _get_slot(self, thread_id: str) -> _ThreadSlot:
         with self._lock:
             if thread_id not in self._slots:
                 slot = _ThreadSlot()
                 if _LC_AVAILABLE:
-                    slot.history = LCChatHistory()
+                    slot.history = LCChatHistory()  # type: ignore
                 else:
-                    slot.history = []  # list of {role, content}
+                    slot.history = []
                 self._slots[thread_id] = slot
             return self._slots[thread_id]
 
-    # ---------- Last report hash ----------
+    # ---- last report hash ----
     def get_last_report_hash(self, thread_id: str) -> str | None:
         return self._get_slot(thread_id).last_report_hash
 
@@ -70,35 +70,30 @@ class ConversationMemory:
             slot.last_report_hash = h
         return h
 
-    # ---------- Conversation history ----------
+    # ---- messages ----
     def _append(self, thread_id: str, role: str, content: str) -> None:
         content = (content or "").strip()
         if not content:
             return
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
+            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
                 if role == "user":
-                    slot.history.add_message(HumanMessage(content=content))  # type: ignore[arg-type]
+                    slot.history.add_message(HumanMessage(content=content))  # type: ignore
                 else:
-                    slot.history.add_message(AIMessage(content=content))  # type: ignore[arg-type]
+                    slot.history.add_message(AIMessage(content=content))  # type: ignore
             else:
                 slot.history.append({"role": role, "content": content})
 
     def append_user(self, thread_id: str, content: str) -> None:
         if not content:
             return
-        # Deduplicate identical consecutive user message
         last = self.last_message(thread_id)
         if last and last[0] == "user" and (last[1] or "").strip() == content.strip():
             return
         self._append(thread_id, "user", content)
 
     def append_assistant_if_new(self, thread_id: str, content: str) -> bool:
-        """Append assistant message if different from the last assistant message.
-
-        Returns True if appended, False if considered duplicate.
-        """
         if not content:
             return False
         last = self.last_message(thread_id)
@@ -110,14 +105,13 @@ class ConversationMemory:
     def last_message(self, thread_id: str) -> tuple[str, str] | None:
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
+            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
                 msgs = slot.history.messages  # type: ignore[attr-defined]
                 if not msgs:
                     return None
                 m = msgs[-1]
                 role = "assistant" if isinstance(m, AIMessage) else "user"
-                content = getattr(m, "content", "")
-                return role, str(content)
+                return role, str(getattr(m, "content", ""))
             else:
                 if not slot.history:
                     return None
@@ -125,10 +119,9 @@ class ConversationMemory:
                 return str(m.get("role", "")), str(m.get("content", ""))
 
     def last_assistant(self, thread_id: str) -> str | None:
-        """Return the most recent assistant message content, if any."""
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
+            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
                 for m in reversed(slot.history.messages):  # type: ignore[attr-defined]
                     if isinstance(m, AIMessage):
                         return str(getattr(m, "content", ""))
@@ -142,7 +135,7 @@ class ConversationMemory:
     def get_history(self, thread_id: str, limit: int = 50) -> list[dict[str, str]]:
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
+            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
                 out: list[dict[str, str]] = []
                 for m in slot.history.messages[-limit:]:  # type: ignore[attr-defined]
                     if isinstance(m, AIMessage):
@@ -153,33 +146,17 @@ class ConversationMemory:
             else:
                 return list(slot.history[-limit:])
 
-    # ---------- Seen paragraphs (for chat streaming dedupe across turns) ----------
-    def get_seen_paragraphs(self, thread_id: str) -> list[str]:
-        slot = self._get_slot(thread_id)
-        with slot.lock:
-            return list(slot.seen_paragraphs)
-
-    def add_seen_paragraphs(self, thread_id: str, paras: list[str]) -> None:
-        if not paras:
-            return
-        slot = self._get_slot(thread_id)
-        with slot.lock:
-            for p in paras:
-                s = (p or "").strip()
-                if s:
-                    slot.seen_paragraphs.add(s)
-
-    # ---------- Analyze results (report + structured data) ----------
+    # ---- analysis persistence ----
     def set_analysis(
         self, thread_id: str, text: str, reports: dict[str, Any] | None = None
     ) -> None:
         slot = self._get_slot(thread_id)
         with slot.lock:
-            slot.last_report_text = (text or "").strip() or None
-            if slot.last_report_text:
-                slot.last_report_hash = _hash_text(slot.last_report_text)
+            s = (text or "").strip()
+            slot.last_report_text = s or None
+            slot.last_report_hash = _hash_text(s) if s else None
             if reports is not None:
-                slot.reports = reports
+                slot.reports = dict(reports or {})
 
     def get_analysis(self, thread_id: str) -> tuple[str | None, dict[str, Any]]:
         slot = self._get_slot(thread_id)
@@ -187,7 +164,6 @@ class ConversationMemory:
             return slot.last_report_text, dict(slot.reports or {})
 
 
-# Singleton
 _MEMORY = ConversationMemory()
 
 

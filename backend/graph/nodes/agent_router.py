@@ -2,13 +2,8 @@
 
 from typing import Any
 
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_openai import ChatOpenAI
-except Exception:
-    ChatOpenAI = None
-    SystemMessage = None
-    HumanMessage = None
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from backend.app.core.config import get_settings
 

@@ -11,6 +11,11 @@ except Exception:  # pragma: no cover
     ConfigDict = dict  # type: ignore
 
 
+class FileInput(BaseModel):
+    path: str
+    content: str
+
+
 class Message(BaseModel):
     role: str
     content: str
@@ -22,9 +27,14 @@ class ExplainRequest(BaseModel):
     # Conversational inputs
     messages: list[Message] | None = None
     code: str | None = None
+    # Optional batch of files (for folder/CLI inputs)
+    files: list[FileInput] | None = None
     thread_id: str | None = None
 
     # Optional metadata/controls
     mode: str | None = None
     agents: list[str] | None = None
     entry: str | None = None
+
+    # Optional source selector: "pasted" | "folder" | "cli"
+    source: str | None = None

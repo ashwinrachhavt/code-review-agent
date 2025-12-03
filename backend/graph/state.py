@@ -6,7 +6,15 @@ The state is designed to be serializable by LangGraph's checkpointing layer
 and resilient to partial updates from nodes. Keep values JSON-serializable.
 """
 
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
+
+try:
+    # Preferred message reducer for conversation histories
+    from langgraph.graph.message import add_messages  # type: ignore
+except Exception:  # pragma: no cover
+
+    def add_messages(x, y):  # type: ignore
+        return (x or []) + (y or [])
 
 
 class HistoryMessage(TypedDict, total=False):
@@ -23,14 +31,19 @@ class CodeReviewState(TypedDict, total=False):
     # Core input
     code: str
     language: str | None
+    source: str | None
+    files: list[dict[str, Any]]
 
     # Conversation memory
     history: list[HistoryMessage]
+    messages: Annotated[list[Any], add_messages]
 
     # Expert outputs
     quality_report: dict[str, Any] | None
     bug_report: dict[str, Any] | None
     security_report: dict[str, Any] | None
+    ast_report: dict[str, Any] | None
+    context: dict[str, Any] | None
 
     # Tooling + orchestration metadata
     tool_logs: list[dict[str, Any]]
@@ -44,6 +57,12 @@ class CodeReviewState(TypedDict, total=False):
     # Agent tool-calling scratchpad (internal to experts loop)
     agent_messages: list[Any]
     experts_iterations: int
+
+    # Input modality + context
+    input_mode: str  # 'paste' | 'folder' | 'repo'
+    folder_path: str | None
+    code_context: dict[str, str]
+    vectorstore_id: str | None
 
 
 def initial_state(
@@ -76,6 +95,7 @@ def initial_state(
         "code": code,
         "language": None,
         "history": list(history or [])[-20:],
+        "messages": [],
         "quality_report": None,
         "bug_report": None,
         "security_report": None,
@@ -84,4 +104,8 @@ def initial_state(
         "mode": mode,
         "agents": agents or ["quality", "bug", "security"],
         "final_report": None,
+        "input_mode": "paste",
+        "folder_path": None,
+        "code_context": {},
+        "vectorstore_id": None,
     }

@@ -1,13 +1,15 @@
-Backend service with FastAPI + LangGraph. Uses native LangGraph checkpointers and LangChain LLM cache. Supports SSE streaming to the Next.js frontend and optional Celery + Redis offloading for high throughput.
+Backend service with FastAPI + LangGraph. Uses a SQLite LangGraph checkpointer and LangChain LLM cache. Supports SSE streaming to the Next.js frontend.
 
 Quick start
 - Create `.env` from `backend/.env.example` and fill keys.
-- Run Redis locally: `docker run -p 6379:6379 redis`.
 - Start API: `uvicorn backend.main:app --reload`.
-- Optional: enable Celery by setting `USE_CELERY=1` in `.env` and run a worker:
-  - `celery -A backend.app.celery_app.celery_app worker -l info -Q celery -c 2`
+ 
 
 Notes
-- When `USE_CELERY=1`, requests are streamed via Redis pub/sub from workers.
 - LangChain LLM cache is enabled in-memory to avoid repeated model calls.
-- LangGraph checkpointer can be enabled by `LANGGRAPH_CHECKPOINTER=1`.
+- LangGraph SQLite checkpointer can be enabled by `LANGGRAPH_CHECKPOINTER=1` (uses `DATABASE_URL`).
+- Security tools:
+  - Semgrep is required for security scanning. Install with:
+    - `pip install semgrep` (recommended in your venv), or
+    - `brew install semgrep` (macOS)
+  - Bandit (Python only): `pip install bandit` (or `brew install bandit`)
