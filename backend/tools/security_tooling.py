@@ -8,6 +8,10 @@ import tempfile
 from contextlib import suppress
 from typing import Any
 
+from backend.app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def _temp_suffix_for_language(language: str | None) -> str:
     if language == "python":
@@ -25,9 +29,11 @@ def scan_bandit(code: str, language: str | None = None, timeout: int = 25) -> di
     Returns: { available: bool, findings: [...], error?: str }
     """
     if language != "python":
+        logger.debug("Bandit skipped (language=%s)", language)
         return {"available": True, "findings": [], "note": "Bandit only runs for Python code"}
 
     if shutil.which("bandit") is None:
+        logger.info("Bandit not installed; skipping scan")
         return {"available": False, "findings": [], "error": "bandit not installed"}
 
     suffix = _temp_suffix_for_language(language)
@@ -55,6 +61,7 @@ def scan_bandit(code: str, language: str | None = None, timeout: int = 25) -> di
             )
         return {"available": True, "findings": issues}
     except Exception as e:  # pragma: no cover - runtime environment dependent
+        logger.exception("Bandit scan failed: %s", e)
         return {"available": True, "findings": [], "error": str(e)}
     finally:
         if temp_path and os.path.exists(temp_path):
@@ -67,8 +74,26 @@ def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> d
 
     Returns: { available: bool, findings: [...], error?: str }
     """
-    if shutil.which("semgrep") is None:
-        return {"available": False, "findings": [], "error": "semgrep not installed"}
+    semgrep_exe = shutil.which("semgrep")
+    use_module = False
+    if semgrep_exe is None:
+        # Fallback: try invoking the Python module if installed in this environment
+        try:
+            import importlib.util
+            import sys
+
+            if importlib.util.find_spec("semgrep") is not None:  # type: ignore
+                use_module = True
+            else:
+                logger.warning(
+                    "Semgrep not installed; install via 'pip install semgrep' or 'brew install semgrep'"
+                )
+                return {"available": False, "findings": [], "error": "semgrep not installed"}
+        except Exception:
+            logger.warning(
+                "Semgrep not installed; install via 'pip install semgrep' or 'brew install semgrep'"
+            )
+            return {"available": False, "findings": [], "error": "semgrep not installed"}
 
     suffix = _temp_suffix_for_language(language)
     temp_path = None
@@ -78,7 +103,22 @@ def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> d
             temp_path = f.name
 
         # Using --config auto to avoid requiring network or manual rule sets; may be limited.
-        cmd = ["semgrep", "--quiet", "--json", "--config", "auto", temp_path]
+        if use_module:
+            # Invoke as a module: python -m semgrep
+            import sys
+
+            cmd = [
+                sys.executable,
+                "-m",
+                "semgrep",
+                "--quiet",
+                "--json",
+                "--config",
+                "auto",
+                temp_path,
+            ]
+        else:
+            cmd = [semgrep_exe, "--quiet", "--json", "--config", "auto", temp_path]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if proc.returncode not in (0, 1):
             # Non-zero may be rule download or parse issue
@@ -109,6 +149,7 @@ def scan_semgrep(code: str, language: str | None = None, timeout: int = 30) -> d
             )
         return {"available": True, "findings": findings}
     except Exception as e:  # pragma: no cover
+        logger.exception("Semgrep scan failed: %s", e)
         return {"available": True, "findings": [], "error": str(e)}
     finally:
         if temp_path and os.path.exists(temp_path):

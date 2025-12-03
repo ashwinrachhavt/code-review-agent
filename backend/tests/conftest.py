@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -26,6 +27,10 @@ if backend_dir_s not in sys.path:
 
 @pytest.fixture(scope="session")
 def app():
+    # Ensure no checkpointer is used during tests (simplifies streaming)
+    os.environ["LANGGRAPH_CHECKPOINTER"] = "0"
+    # Ensure no accidental network calls to OpenAI in tests
+    os.environ.pop("OPENAI_API_KEY", None)
     from main import create_app  # type: ignore
 
     return create_app()

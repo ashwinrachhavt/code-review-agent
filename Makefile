@@ -11,14 +11,16 @@ FRONTEND_DIR := frontend
 PYTHON ?= python3
 UVICORN ?= uvicorn
 
-.PHONY: help install install-backend install-frontend lint lint-backend lint-frontend \
+.PHONY: help install install-backend install-frontend lint lint-all lint-backend lint-frontend \
 	format format-backend test test-backend run run-backend run-frontend pre-commit-install ci \
 	clean clean-pyc clean-egg purge
 
 help:
 	@echo "Common tasks:"
 	@echo "  make install            # install backend (editable)"
-	@echo "  make lint               # ruff + next lint (if pnpm present)"
+	@echo "  make lint-backend       # ruff (backend)"
+	@echo "  make lint-frontend      # next lint (frontend)"
+	@echo "  make lint-all           # backend + frontend lint"
 	@echo "  make format             # ruff format backend"
 	@echo "  make test               # pytest (backend)"
 	@echo "  make run-backend        # start FastAPI with uvicorn"
@@ -55,7 +57,11 @@ install-frontend:
 		echo "$(FRONTEND_DIR) not found, skipping"; \
 	fi
 
-lint: lint-backend lint-frontend
+# Default lint runs backend only; use lint-all for both
+lint: lint-backend
+
+# Run both linters
+lint-all: lint-backend lint-frontend
 
 lint-backend:
 	$(PYTHON) -m ruff check $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml

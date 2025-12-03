@@ -13,7 +13,8 @@ from langgraph.graph import END, START, StateGraph  # type: ignore
 
 from backend.app.core.config import Settings, get_settings
 from backend.graph.memory.sqlite_checkpoint import get_checkpointer
-from backend.graph.nodes.chat_mode import chat_mode_node
+from backend.graph.nodes.chat_reply import chat_reply_node
+from backend.graph.nodes.context import context_node
 from backend.graph.nodes.router import router_node
 from backend.graph.nodes.synthesis import synthesis_node
 from backend.graph.nodes.tools_parallel import tools_parallel_node
@@ -53,17 +54,37 @@ def build_graph(settings: Settings | None = None) -> Any:
 
     # Nodes
     graph.add_node("router", router_node)
+    graph.add_node("build_context", context_node)
     graph.add_node("tools_parallel", tools_parallel_node)
     graph.add_node("synthesis", synthesis_node)
-    graph.add_node("chat_mode", chat_mode_node)
     graph.add_node("persist", _persist_node)
+    graph.add_node("chat_reply", chat_reply_node)
 
     # Edges
-    graph.add_edge(START, "router")
-    graph.add_edge("router", "chat_mode")
-    graph.add_edge("chat_mode", "tools_parallel")
+    # Mode gate: route to chat or full analysis
+    def _mode_gate(state: dict[str, Any]) -> dict[str, Any]:
+        return state
+
+    def _route_mode(state: dict[str, Any]) -> str:
+        mode = str(state.get("mode") or "").lower()
+        return "chat" if mode == "chat" else "analyze"
+
+    graph.add_node("mode_gate", _mode_gate)
+    graph.add_edge(START, "mode_gate")
+    graph.add_conditional_edges(
+        "mode_gate",
+        _route_mode,
+        {
+            "chat": "chat_reply",
+            "analyze": "router",
+        },
+    )
+
+    graph.add_edge("router", "build_context")
+    graph.add_edge("build_context", "tools_parallel")
     graph.add_edge("tools_parallel", "synthesis")
     graph.add_edge("synthesis", "persist")
+    graph.add_edge("chat_reply", "persist")
     graph.add_edge("persist", END)
 
     # Checkpointer wiring (SQLite preferred) - opt-in via env to simplify tests

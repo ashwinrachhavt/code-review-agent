@@ -27,6 +27,12 @@ class Settings:
         Legacy Redis namespace; unused when SQLite is enabled.
     DATABASE_URL: str
         SQLAlchemy connection string for SQLite (default: sqlite:///backend/data.db).
+    QDRANT_PATH: str
+        Qdrant local path or ":memory:" for in-memory vector DB.
+    QDRANT_MIN_FILES: int
+        Minimal file count threshold to trigger vector indexing.
+    QDRANT_MIN_BYTES: int
+        Minimal total bytes threshold to trigger vector indexing.
     LOG_LEVEL: str
         Application log level.
     # Note: Celery support has been removed.
@@ -38,6 +44,9 @@ class Settings:
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     REDIS_NAMESPACE: str = os.getenv("REDIS_NAMESPACE", "code-review-agent")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///backend/data.db")
+    QDRANT_PATH: str = os.getenv("QDRANT_PATH", ":memory:")
+    QDRANT_MIN_FILES: int = int(os.getenv("QDRANT_MIN_FILES", "10"))
+    QDRANT_MIN_BYTES: int = int(os.getenv("QDRANT_MIN_BYTES", "100000"))
 
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 

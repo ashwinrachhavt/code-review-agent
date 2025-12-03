@@ -1,35 +1,52 @@
 from __future__ import annotations
 
-"""Parallel tools node using LangChain tool wrappers.
+"""Tools node (sync) aggregating code metrics and security findings.
 
-Runs Semgrep, Bandit, Radon (and optionally Vulture) concurrently and maps
-results into the shared state expected by the synthesis node.
+To keep tests simple (they call graph.invoke synchronously), this node is
+implemented as a synchronous function. In production, this can be swapped to an
+async version using asyncio.gather for parallelism.
 """
 
-import asyncio
 import json
+import logging
 from typing import Any
 
+from backend.graph.tools.ast_tools import ast_analyze, ast_analyze_files
 from backend.graph.tools.radon_tool import radon_complexity_tool
-from backend.graph.tools.security_tools import (
-    bandit_scan,
-    semgrep_scan,
-    vulture_deadcode,
-)
+from backend.graph.tools.security_tools import bandit_scan, semgrep_scan, vulture_deadcode
 
 
-async def tools_parallel_node(state: dict[str, Any]) -> dict[str, Any]:
+def tools_parallel_node(state: dict[str, Any]) -> dict[str, Any]:
     code = state.get("code", "") or ""
+    files = state.get("files") or []
+    language = state.get("language") or (files[0]["language"] if files else None)
+    logger.debug("Running tools in parallel (blob_len=%d files=%d)", len(code), len(files))
 
-    # Run tools concurrently (sync helpers via threads)
-    bandit_task = asyncio.to_thread(bandit_scan, code, "python")
-    semgrep_task = asyncio.to_thread(semgrep_scan, code, "python")
-    radon_task = asyncio.to_thread(radon_complexity_tool, code)
-    vulture_task = asyncio.to_thread(vulture_deadcode, code)
+    if files:
+        # Folder mode: run per-file for security; concatenate for quality metrics
+        sample = files[:25]
 
-    bandit_res, semgrep_res, radon_res_s, vulture_res = await asyncio.gather(
-        bandit_task, semgrep_task, radon_task, vulture_task
-    )
+        bandit_res = {"available": True, "findings": []}
+        semgrep_res = {"available": True, "findings": []}
+        for f in sample:
+            lang = f.get("language") or "python"
+            content = f.get("content") or ""
+            b = bandit_scan(content, "python" if lang == "python" else None)
+            s = semgrep_scan(content, lang)
+            bandit_res["findings"].extend(b.get("findings") or [])
+            semgrep_res["findings"].extend(s.get("findings") or [])
+
+        concat = "\n".join(f"# File: {f['path']}\n{f['content']}" for f in sample)
+        radon_res_s = radon_complexity_tool(concat)
+        vulture_res = vulture_deadcode(concat)
+        ast_res = ast_analyze_files(sample)
+    else:
+        # Single blob mode
+        bandit_res = bandit_scan(code, "python")
+        semgrep_res = semgrep_scan(code, "python")
+        radon_res_s = radon_complexity_tool(code)
+        vulture_res = vulture_deadcode(code)
+        ast_res = ast_analyze(code, language)
 
     # Parse radon JSON string
     try:
@@ -51,6 +68,12 @@ async def tools_parallel_node(state: dict[str, Any]) -> dict[str, Any]:
                 }
             )
     state["security_report"] = {"vulnerabilities": sec_findings}
+    logger.debug(
+        "Tools results: bandit=%d semgrep=%d offenders=%d",
+        len(bandit_res.get("findings") or []),
+        len(semgrep_res.get("findings") or []),
+        len((radon_res.get("metrics") or {}).get("offenders") or []),
+    )
 
     # Aggregate quality metrics and issues
     metrics = {
@@ -85,6 +108,9 @@ async def tools_parallel_node(state: dict[str, Any]) -> dict[str, Any]:
 
     state["quality_report"] = {"metrics": metrics, "issues": issues}
 
+    # AST
+    state["ast_report"] = ast_res
+
     # Placeholder for bug report
     state.setdefault("bug_report", {"bugs": []})
 
@@ -95,4 +121,8 @@ async def tools_parallel_node(state: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         state["progress"] = 70.0
 
+    logger.info("Tools completed: sec=%d quality_issues=%d", len(sec_findings), len(issues))
     return state
+
+
+logger = logging.getLogger(__name__)

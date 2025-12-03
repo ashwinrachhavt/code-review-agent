@@ -14,13 +14,16 @@ dependencies = [
     "langchain>=0.3.27",
     "langchain-core>=0.3.80",
     "langchain-openai>=0.2.14",
+    "langchain-community>=0.3.13",
     "pydantic>=2.12.4",
     "python-dotenv>=1.2.1",
     "uvicorn[standard]>=0.38.0",
     "radon>=6.0.1",
     "bandit>=1.7.9",
     "vulture>=2.10", # optional; dead code finder
-    "sqlalchemy>=2.0.36",
+    "qdrant-client>=1.9.0",
+    "semgrep>=1.62.0",
+    "SQLAlchemy>=2.0.30",
 ]
 
 [tool.setuptools.packages.find]
