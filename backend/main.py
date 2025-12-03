@@ -4,6 +4,7 @@ Creates FastAPI app, configures CORS/logging, builds the LangGraph, and
 includes routers. Heavy logic lives in graph/nodes.
 """
 
+from contextlib import suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -17,14 +18,18 @@ try:
 except Exception:
     pass
 
-from backend.app.api.explain import router as explain_router
+from backend.app.api.routes import router as explain_router
 from backend.app.core.config import get_settings
 from backend.app.core.logging import setup_logging
+from backend.app.db import init_db
 from backend.graph.graph import build_graph
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Ensure SQLite tables exist
+    with suppress(Exception):
+        init_db()
     setup_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Code Explanation Agent")
 

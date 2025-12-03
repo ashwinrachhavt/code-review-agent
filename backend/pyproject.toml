@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.121.3",
-    "langgraph>=0.2.30",
+    "langgraph>=0.2.80",
     "langchain>=0.3.27",
     "langchain-core>=0.3.80",
     "langchain-openai>=0.2.14",
@@ -19,8 +19,8 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
     "radon>=6.0.1",
     "bandit>=1.7.9",
-    "celery>=5.4.0",
-    "redis>=5.0.8",
+    "vulture>=2.10", # optional; dead code finder
+    "sqlalchemy>=2.0.36",
 ]
 
 [tool.setuptools.packages.find]
@@ -57,6 +57,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**.py" = ["S101"]
+"app/core/config.py" = ["RUF009"]
 
 [tool.ruff.format]
 quote-style = "double"

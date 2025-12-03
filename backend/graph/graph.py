@@ -12,17 +12,11 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph  # type: ignore
 
 from backend.app.core.config import Settings, get_settings
-from backend.graph.memory.redis_checkpoint import get_checkpointer
+from backend.graph.memory.sqlite_checkpoint import get_checkpointer
 from backend.graph.nodes.chat_mode import chat_mode_node
-from backend.graph.nodes.llm_experts import (
-    experts_finalize_node,
-    experts_model_node,
-    experts_tools_node,
-)
 from backend.graph.nodes.router import router_node
-from backend.graph.nodes.security_analysis import security_analysis_node
-from backend.graph.nodes.static_analysis import static_analysis_node
 from backend.graph.nodes.synthesis import synthesis_node
+from backend.graph.nodes.tools_parallel import tools_parallel_node
 from backend.graph.state import CodeReviewState
 
 
@@ -59,11 +53,7 @@ def build_graph(settings: Settings | None = None) -> Any:
 
     # Nodes
     graph.add_node("router", router_node)
-    graph.add_node("static_analysis", static_analysis_node)
-    graph.add_node("security_analysis", security_analysis_node)
-    graph.add_node("experts_model", experts_model_node)
-    graph.add_node("experts_tools", experts_tools_node)
-    graph.add_node("experts_finalize", experts_finalize_node)
+    graph.add_node("tools_parallel", tools_parallel_node)
     graph.add_node("synthesis", synthesis_node)
     graph.add_node("chat_mode", chat_mode_node)
     graph.add_node("persist", _persist_node)
@@ -71,44 +61,25 @@ def build_graph(settings: Settings | None = None) -> Any:
     # Edges
     graph.add_edge(START, "router")
     graph.add_edge("router", "chat_mode")
-    graph.add_edge("chat_mode", "static_analysis")
-    graph.add_edge("static_analysis", "security_analysis")
-    graph.add_edge("security_analysis", "experts_model")
-
-    # Conditional routing between model and tools, then finalize
-    def _route_experts(state: dict[str, Any]) -> str:
-        """Return the routing key for conditional edges.
-
-        Must return the mapping key (e.g. "tools" or "finalize"), not the
-        destination node id. LangGraph will look up the destination using the
-        provided mapping in `add_conditional_edges`.
-        """
-        nxt = state.get("experts_next") or "finalize"
-        if nxt == "tools":
-            return "tools"
-        return "finalize"
-
-    graph.add_conditional_edges(
-        "experts_model",
-        _route_experts,
-        {
-            "tools": "experts_tools",
-            "finalize": "experts_finalize",
-        },
-    )
-    graph.add_edge("experts_tools", "experts_model")
-    graph.add_edge("experts_finalize", "synthesis")
+    graph.add_edge("chat_mode", "tools_parallel")
+    graph.add_edge("tools_parallel", "synthesis")
     graph.add_edge("synthesis", "persist")
     graph.add_edge("persist", END)
 
-    # Checkpointer wiring (Redis preferred) - opt-in via env to simplify tests
+    # Checkpointer wiring (SQLite preferred) - opt-in via env to simplify tests
     use_checkpointer = str(os.getenv("LANGGRAPH_CHECKPOINTER", "0")).lower() in {
         "1",
         "true",
         "yes",
     }
     if use_checkpointer:
-        checkpointer = get_checkpointer(settings)
+        # Use SQLite checkpointer with the app database path
+        db_url = settings.DATABASE_URL
+        # LangGraph sqlite saver may accept file path; extract path from URL if possible
+        db_path = db_url
+        if db_url.startswith("sqlite:///"):
+            db_path = db_url[len("sqlite:///") :]
+        checkpointer = get_checkpointer(db_path)
         app = graph.compile(checkpointer=checkpointer)
     else:
         app = graph.compile()

@@ -8,14 +8,21 @@ thread to suppress duplicate responses.
 """
 
 import hashlib
+import json
 import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.app.db import Message as DBMessage
+from backend.app.db import SessionLocal
+from backend.app.db import Thread as DBThread
+
 try:  # LangChain memory (optional)
     from langchain_community.chat_message_histories import (
         ChatMessageHistory as LCChatHistory,
-    )  # type: ignore
+    )
+
+    # type: ignore
     from langchain_core.messages import AIMessage, HumanMessage  # type: ignore
 
     _LC_AVAILABLE = True
@@ -31,15 +38,9 @@ def _hash_text(text: str) -> str:
 
 @dataclass
 class _ThreadSlot:
-    last_report_hash: str | None = None
-    last_report_text: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
-    # Either LangChain ChatMessageHistory or a simple list of dicts
-    history: Any = field(default=None)
     # Track previously streamed paragraphs to suppress repeats across turns
     seen_paragraphs: set[str] = field(default_factory=set)
-    # Last structured reports from analyze phase
-    reports: dict[str, Any] = field(default_factory=dict)
 
 
 class ConversationMemory:
@@ -52,22 +53,32 @@ class ConversationMemory:
         with self._lock:
             if thread_id not in self._slots:
                 slot = _ThreadSlot()
-                if _LC_AVAILABLE:
-                    slot.history = LCChatHistory()
-                else:
-                    slot.history = []  # list of {role, content}
+                # Ensure DB thread exists
+                with SessionLocal() as db:
+                    thr = db.get(DBThread, thread_id)
+                    if thr is None:
+                        thr = DBThread(id=thread_id)
+                        db.add(thr)
+                        db.commit()
                 self._slots[thread_id] = slot
             return self._slots[thread_id]
 
     # ---------- Last report hash ----------
     def get_last_report_hash(self, thread_id: str) -> str | None:
-        return self._get_slot(thread_id).last_report_hash
+        with SessionLocal() as db:
+            thr = db.get(DBThread, thread_id)
+            return (thr.last_report_hash or None) if thr else None
 
     def set_last_report_hash(self, thread_id: str, text: str) -> str:
         h = _hash_text(text)
         slot = self._get_slot(thread_id)
-        with slot.lock:
-            slot.last_report_hash = h
+        with slot.lock, SessionLocal() as db:
+            thr = db.get(DBThread, thread_id)
+            if thr is None:
+                thr = DBThread(id=thread_id)
+                db.add(thr)
+            thr.last_report_hash = h
+            db.commit()
         return h
 
     # ---------- Conversation history ----------
@@ -76,14 +87,16 @@ class ConversationMemory:
         if not content:
             return
         slot = self._get_slot(thread_id)
-        with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
-                if role == "user":
-                    slot.history.add_message(HumanMessage(content=content))  # type: ignore[arg-type]
-                else:
-                    slot.history.add_message(AIMessage(content=content))  # type: ignore[arg-type]
-            else:
-                slot.history.append({"role": role, "content": content})
+        # Persist to SQLite with combined context managers
+        with slot.lock, SessionLocal() as db:
+            thr = db.get(DBThread, thread_id)
+            if thr is None:
+                thr = DBThread(id=thread_id)
+                db.add(thr)
+                db.flush()
+            msg = DBMessage(thread_id=thr.id, role=role, content=content)
+            db.add(msg)
+            db.commit()
 
     def append_user(self, thread_id: str, content: str) -> None:
         if not content:
@@ -108,50 +121,40 @@ class ConversationMemory:
         return True
 
     def last_message(self, thread_id: str) -> tuple[str, str] | None:
-        slot = self._get_slot(thread_id)
-        with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
-                msgs = slot.history.messages  # type: ignore[attr-defined]
-                if not msgs:
-                    return None
-                m = msgs[-1]
-                role = "assistant" if isinstance(m, AIMessage) else "user"
-                content = getattr(m, "content", "")
-                return role, str(content)
-            else:
-                if not slot.history:
-                    return None
-                m = slot.history[-1]
-                return str(m.get("role", "")), str(m.get("content", ""))
+        # DB-backed latest message
+        with SessionLocal() as db:
+            row = (
+                db.query(DBMessage)
+                .filter(DBMessage.thread_id == thread_id)
+                .order_by(DBMessage.id.desc())
+                .first()
+            )
+            if not row:
+                return None
+            return str(row.role or ""), str(row.content or "")
 
     def last_assistant(self, thread_id: str) -> str | None:
         """Return the most recent assistant message content, if any."""
-        slot = self._get_slot(thread_id)
-        with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
-                for m in reversed(slot.history.messages):  # type: ignore[attr-defined]
-                    if isinstance(m, AIMessage):
-                        return str(getattr(m, "content", ""))
-                return None
-            else:
-                for m in reversed(slot.history):
-                    if (m.get("role") or "") == "assistant":
-                        return str(m.get("content", ""))
-                return None
+        with SessionLocal() as db:
+            row = (
+                db.query(DBMessage)
+                .filter(DBMessage.thread_id == thread_id, DBMessage.role == "assistant")
+                .order_by(DBMessage.id.desc())
+                .first()
+            )
+            return str(row.content) if row and row.content else None
 
     def get_history(self, thread_id: str, limit: int = 50) -> list[dict[str, str]]:
-        slot = self._get_slot(thread_id)
-        with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):
-                out: list[dict[str, str]] = []
-                for m in slot.history.messages[-limit:]:  # type: ignore[attr-defined]
-                    if isinstance(m, AIMessage):
-                        out.append({"role": "assistant", "content": str(getattr(m, "content", ""))})
-                    else:
-                        out.append({"role": "user", "content": str(getattr(m, "content", ""))})
-                return out
-            else:
-                return list(slot.history[-limit:])
+        with SessionLocal() as db:
+            rows = (
+                db.query(DBMessage)
+                .filter(DBMessage.thread_id == thread_id)
+                .order_by(DBMessage.id.asc())
+                .all()
+            )
+            if not rows:
+                return []
+            return [{"role": r.role, "content": r.content} for r in rows][-limit:]
 
     # ---------- Seen paragraphs (for chat streaming dedupe across turns) ----------
     def get_seen_paragraphs(self, thread_id: str) -> list[str]:
@@ -174,17 +177,31 @@ class ConversationMemory:
         self, thread_id: str, text: str, reports: dict[str, Any] | None = None
     ) -> None:
         slot = self._get_slot(thread_id)
-        with slot.lock:
-            slot.last_report_text = (text or "").strip() or None
-            if slot.last_report_text:
-                slot.last_report_hash = _hash_text(slot.last_report_text)
+        with slot.lock, SessionLocal() as db:
+            thr = db.get(DBThread, thread_id)
+            if thr is None:
+                thr = DBThread(id=thread_id)
+                db.add(thr)
+            clean = (text or "").strip()
+            thr.final_report = clean
+            thr.last_report_hash = _hash_text(clean) if clean else ""
             if reports is not None:
-                slot.reports = reports
+                try:
+                    thr.reports_json = json.dumps(reports)
+                except Exception:
+                    thr.reports_json = "{}"
+            db.commit()
 
     def get_analysis(self, thread_id: str) -> tuple[str | None, dict[str, Any]]:
-        slot = self._get_slot(thread_id)
-        with slot.lock:
-            return slot.last_report_text, dict(slot.reports or {})
+        with SessionLocal() as db:
+            thr = db.get(DBThread, thread_id)
+            if not thr:
+                return None, {}
+            try:
+                reports = json.loads(thr.reports_json or "{}")
+            except Exception:
+                reports = {}
+            return (thr.final_report or None), reports
 
 
 # Singleton
