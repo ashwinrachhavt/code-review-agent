@@ -1,24 +1,20 @@
 from __future__ import annotations
 
-import os
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from alembic import context
-from pathlib import Path
 import sys
+from logging.config import fileConfig
+from pathlib import Path
+
+from alembic import context
+from dotenv import load_dotenv  # type: ignore
+from sqlalchemy import engine_from_config, pool
 
 # Load environment variables from .env files to make DATABASE_URL available
-try:
-    from dotenv import load_dotenv  # type: ignore
-
-    repo_root = Path(__file__).resolve().parents[2]
-    # Ensure `import backend...` works when running Alembic from backend/
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-    load_dotenv(repo_root / "backend" / ".env")
-    load_dotenv(repo_root / ".env")
-except Exception:
-    pass
+repo_root = Path(__file__).resolve().parents[2]
+# Ensure `import backend...` works when running Alembic from backend/
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+load_dotenv(repo_root / "backend" / ".env")
+load_dotenv(repo_root / ".env")
 
 # Interpret the config file for Python logging.
 config = context.config

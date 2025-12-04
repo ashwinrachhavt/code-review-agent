@@ -16,17 +16,10 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-try:  # optional LangChain chat memory
-    from langchain_community.chat_message_histories import (
-        ChatMessageHistory as LCChatHistory,
-    )
-    from langchain_core.messages import AIMessage, HumanMessage  # type: ignore
-
-    _LC_AVAILABLE = True
-except Exception:  # pragma: no cover
-    LCChatHistory = None  # type: ignore
-    AIMessage = HumanMessage = object  # type: ignore
-    _LC_AVAILABLE = False
+from langchain_community.chat_message_histories import (
+    ChatMessageHistory as LCChatHistory,
+)
+from langchain_core.messages import AIMessage, HumanMessage  # type: ignore
 
 
 def _hash_text(text: str) -> str:
@@ -38,7 +31,7 @@ class _ThreadSlot:
     last_report_hash: str | None = None
     last_report_text: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
-    history: Any = field(default=None)  # LCChatHistory or list[dict]
+    history: Any = field(default=None)  # LCChatHistory
     reports: dict[str, Any] = field(default_factory=dict)
 
 
@@ -52,10 +45,7 @@ class ConversationMemory:
         with self._lock:
             if thread_id not in self._slots:
                 slot = _ThreadSlot()
-                if _LC_AVAILABLE:
-                    slot.history = LCChatHistory()  # type: ignore
-                else:
-                    slot.history = []
+                slot.history = LCChatHistory()  # type: ignore
                 self._slots[thread_id] = slot
             return self._slots[thread_id]
 
@@ -77,13 +67,10 @@ class ConversationMemory:
             return
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
-                if role == "user":
-                    slot.history.add_message(HumanMessage(content=content))  # type: ignore
-                else:
-                    slot.history.add_message(AIMessage(content=content))  # type: ignore
+            if role == "user":
+                slot.history.add_message(HumanMessage(content=content))  # type: ignore
             else:
-                slot.history.append({"role": role, "content": content})
+                slot.history.add_message(AIMessage(content=content))  # type: ignore
 
     def append_user(self, thread_id: str, content: str) -> None:
         if not content:
@@ -105,46 +92,31 @@ class ConversationMemory:
     def last_message(self, thread_id: str) -> tuple[str, str] | None:
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
-                msgs = slot.history.messages  # type: ignore[attr-defined]
-                if not msgs:
-                    return None
-                m = msgs[-1]
-                role = "assistant" if isinstance(m, AIMessage) else "user"
-                return role, str(getattr(m, "content", ""))
-            else:
-                if not slot.history:
-                    return None
-                m = slot.history[-1]
-                return str(m.get("role", "")), str(m.get("content", ""))
+            msgs = slot.history.messages  # type: ignore[attr-defined]
+            if not msgs:
+                return None
+            m = msgs[-1]
+            role = "assistant" if isinstance(m, AIMessage) else "user"
+            return role, str(getattr(m, "content", ""))
 
     def last_assistant(self, thread_id: str) -> str | None:
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
-                for m in reversed(slot.history.messages):  # type: ignore[attr-defined]
-                    if isinstance(m, AIMessage):
-                        return str(getattr(m, "content", ""))
-                return None
-            else:
-                for m in reversed(slot.history):
-                    if (m.get("role") or "") == "assistant":
-                        return str(m.get("content", ""))
-                return None
+            for m in reversed(slot.history.messages):  # type: ignore[attr-defined]
+                if isinstance(m, AIMessage):
+                    return str(getattr(m, "content", ""))
+            return None
 
     def get_history(self, thread_id: str, limit: int = 50) -> list[dict[str, str]]:
         slot = self._get_slot(thread_id)
         with slot.lock:
-            if _LC_AVAILABLE and isinstance(slot.history, LCChatHistory):  # type: ignore
-                out: list[dict[str, str]] = []
-                for m in slot.history.messages[-limit:]:  # type: ignore[attr-defined]
-                    if isinstance(m, AIMessage):
-                        out.append({"role": "assistant", "content": str(getattr(m, "content", ""))})
-                    else:
-                        out.append({"role": "user", "content": str(getattr(m, "content", ""))})
-                return out
-            else:
-                return list(slot.history[-limit:])
+            out: list[dict[str, str]] = []
+            for m in slot.history.messages[-limit:]:  # type: ignore[attr-defined]
+                if isinstance(m, AIMessage):
+                    out.append({"role": "assistant", "content": str(getattr(m, "content", ""))})
+                else:
+                    out.append({"role": "user", "content": str(getattr(m, "content", ""))})
+            return out
 
     # ---- analysis persistence ----
     def set_analysis(

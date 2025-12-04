@@ -123,7 +123,8 @@ def chat_reply_node(state: dict[str, Any]) -> dict[str, Any]:
         try:
             from langchain_openai import ChatOpenAI  # type: ignore
 
-            llm = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.3)
+            model_name = (state.get("llm_model") or settings.OPENAI_MODEL)
+            llm = ChatOpenAI(model=str(model_name), temperature=0.3)
             result = llm.invoke(prompt)
             reply = getattr(result, "content", None) or None
         except Exception:

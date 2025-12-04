@@ -177,7 +177,7 @@ DATABASE_URL=postgresql://user:pass@host:5432/dbname
 
 ## 🛠️ **Tools & Analysis**
 
-### **Security Tools** (`backend/tools/security_tooling.py`)
+### **Security Tools** (`backend/graph/tools/security_tools.py`)
 - **Bandit**: Python security linter (subprocess wrapper)
 - **Semgrep**: Static analysis for vulnerabilities
 - Output: JSON → structured `security_report`

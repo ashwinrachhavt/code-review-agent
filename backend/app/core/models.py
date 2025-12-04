@@ -3,12 +3,10 @@ from __future__ import annotations
 """Pydantic request/response models for the API layer."""
 
 
-from pydantic import BaseModel
-
-try:
-    from pydantic import ConfigDict  # pydantic v2
-except Exception:  # pragma: no cover
-    ConfigDict = dict  # type: ignore
+from pydantic import (
+    BaseModel,
+    ConfigDict,  # pydantic v2
+)
 
 
 class FileInput(BaseModel):
@@ -27,16 +25,15 @@ class ExplainRequest(BaseModel):
     # Conversational inputs
     messages: list[Message] | None = None
     code: str | None = None
-    # Optional batch of files (for folder/CLI inputs)
+    # Optional batch of files (for uploads)
     files: list[FileInput] | None = None
     thread_id: str | None = None
 
     # Optional metadata/controls
     mode: str | None = None
     agents: list[str] | None = None
-    entry: str | None = None
 
-    # Optional source selector: "pasted" | "folder" | "cli"
+    # Optional source selector: "pasted" | "files"
     source: str | None = None
 
 

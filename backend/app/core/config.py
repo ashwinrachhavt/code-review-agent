@@ -26,7 +26,8 @@ class Settings:
     REDIS_NAMESPACE: str
         Legacy Redis namespace; unused when SQLite is enabled.
     DATABASE_URL: str
-        SQLAlchemy connection string for SQLite (default: sqlite:///backend/data.db).
+        SQLAlchemy connection string for Postgres. Leave unset to disable
+        persistence during local dev/tests.
     QDRANT_PATH: str
         Qdrant local path or ":memory:" for in-memory vector DB.
     QDRANT_MIN_FILES: int
@@ -43,8 +44,8 @@ class Settings:
 
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     REDIS_NAMESPACE: str = os.getenv("REDIS_NAMESPACE", "code-review-agent")
-    # Prefer Postgres in production; fall back to local SQLite for dev
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///backend/data.db")
+    # Postgres only; if unset, persistence is disabled (in-memory repo)
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     QDRANT_PATH: str = os.getenv("QDRANT_PATH", ":memory:")
     QDRANT_MIN_FILES: int = int(os.getenv("QDRANT_MIN_FILES", "10"))
     QDRANT_MIN_BYTES: int = int(os.getenv("QDRANT_MIN_BYTES", "100000"))

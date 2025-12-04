@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.121.3",
-    # LangGraph core; SQLite checkpointer is optional (see extras below)
+    # LangGraph core
     "langgraph==0.6.0",
     # PostgreSQL driver
     "psycopg[binary]>=3.1",
@@ -22,6 +22,7 @@ dependencies = [
     "langchain-community>=0.3.13,<1.0.0",
     "pydantic>=2.12.4",
     "python-dotenv>=1.2.1",
+    "redis>=5.0.0",
     "uvicorn[standard]>=0.38.0",
     "radon>=6.0.1",
     "bandit>=1.7.9",
@@ -35,14 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Optional SQLite checkpointer for LangGraph persistence.
-# Enable via `LANGGRAPH_CHECKPOINTER=1` and install with one of:
-#   pip install langgraph-checkpoint-sqlite
-#   pip install .[checkpointer]
-checkpointer = [
-    # Keep unpinned to allow compatible releases; app guards runtime imports
-    "langgraph-checkpoint-sqlite>=0.1.0",
-]
+# (No optional dependencies at present)
 
 [tool.setuptools.packages.find]
 # Explicitly list top-level packages in flat layout

@@ -40,7 +40,7 @@ export default function Page() {
     if (threadId && activeThreadId !== threadId) setActiveThreadId(threadId);
   }, [threadId]);
 
-  const handleAnalyze = async (formData: { code?: string; files?: File[]; entry?: string; mode: string }) => {
+  const handleAnalyze = async (formData: { code?: string; files?: File[]; mode: string }) => {
     setShowAnalysis(true);
     setStreamUrl(null);
     setChatMessages([]);
@@ -53,9 +53,7 @@ export default function Page() {
       const fileInputs = await Promise.all(
         formData.files.map(async (f) => ({ path: f.name, content: await f.text() }))
       );
-      body = { ...body, files: fileInputs, source: 'folder' };
-    } else if (formData.entry) {
-      body = { ...body, entry: formData.entry };
+      body = { ...body, files: fileInputs };
     } else if (formData.code) {
       body = { ...body, code: formData.code };
     }

@@ -1,23 +1,21 @@
 from __future__ import annotations
 
-"""Lightweight optional Redis JSON cache.
+"""Lightweight Redis JSON cache."""
 
-If `redis` is not installed or `REDIS_URL` is unset, functions become no-ops.
-"""
-
-from typing import Any
+import contextlib
 import json
 import os
+from typing import Any
+
+try:  # optional dependency; cache degrades to no-op if missing
+    import redis  # type: ignore
+except Exception:  # pragma: no cover
+    redis = None  # type: ignore
 
 from backend.app.core.config import get_settings
 from backend.app.core.logging import get_logger
 
 logger = get_logger(__name__)
-
-try:  # pragma: no cover - optional dependency
-    import redis  # type: ignore
-except Exception:  # pragma: no cover
-    redis = None  # type: ignore
 
 
 _client = None
@@ -64,24 +62,23 @@ def cache_set_json(key: str, value: Any, ttl_seconds: int = 30) -> None:
         payload = json.dumps(value)
         client.set(key, payload, ex=ttl_seconds)
     except Exception:
-        pass
+        # Best effort
+        return None
 
 
 def cache_delete(key: str) -> None:
     client = get_redis_client()
     if client is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         client.delete(key)
-    except Exception:
-        pass
 
 
 def cache_delete_prefix(prefix: str) -> None:
     client = get_redis_client()
     if client is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         cursor = 0
         while True:
             cursor, keys = client.scan(cursor=cursor, match=f"{prefix}*", count=100)
@@ -89,6 +86,3 @@ def cache_delete_prefix(prefix: str) -> None:
                 client.delete(*keys)
             if cursor == 0:
                 break
-    except Exception:
-        pass
-

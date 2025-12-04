@@ -20,11 +20,13 @@ uv sync
 cat > .env << EOF
 OPENAI_API_KEY=your-key-here
 OPENAI_MODEL=gpt-4o-mini
-DATABASE_URL=sqlite:///./code_review.db
+# Optional: enable Postgres persistence
+# DATABASE_URL=postgresql://user:pass@host:5432/dbname
 QDRANT_PATH=./qdrant_data
 QDRANT_MIN_FILES=10
 QDRANT_MIN_BYTES=100000
-LANGGRAPH_CHECKPOINTER=1
+# Optional: enable in-memory LangGraph checkpointer
+# LANGGRAPH_CHECKPOINTER=1
 EOF
 
 # Run backend
@@ -59,14 +61,7 @@ Frontend will be available at: http://localhost:3000
 4. View real-time analysis
 5. Chat about the results
 
-### Option 2: CLI
-
-```bash
-cd backend
-python -m cli.explain /path/to/your/code
-```
-
-### Option 3: API
+### Option 2: API
 
 ```bash
 # Analyze code
@@ -112,4 +107,3 @@ curl -X POST http://localhost:8000/explain/upload \
 - Add more files to analyze
 - Try the chat feature
 - Explore thread history
-- Use CLI for local projects

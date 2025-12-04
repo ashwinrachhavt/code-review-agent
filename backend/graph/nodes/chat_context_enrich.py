@@ -9,20 +9,12 @@ to enhance chat responses with specific code context.
 import logging
 from typing import Any
 
+from langchain_openai import OpenAIEmbeddings
+from qdrant_client import QdrantClient
+
 from backend.app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
-
-# Try to import Qdrant and embeddings
-try:
-    from langchain_openai import OpenAIEmbeddings
-    from qdrant_client import QdrantClient
-
-    QDRANT_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    QDRANT_AVAILABLE = False
-    OpenAIEmbeddings = None
-    QdrantClient = None
 
 
 def chat_context_enrich_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -47,9 +39,9 @@ def chat_context_enrich_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.debug("Chat context enrich: No vectorstore or query, skipping")
         return {}
 
-    # Skip if Qdrant not available
-    if not QDRANT_AVAILABLE or not settings.OPENAI_API_KEY:
-        logger.warning("Chat context enrich: Qdrant or OpenAI not available")
+    # Skip if OpenAI not available
+    if not settings.OPENAI_API_KEY:
+        logger.warning("Chat context enrich: OpenAI not available")
         return {}
 
     try:

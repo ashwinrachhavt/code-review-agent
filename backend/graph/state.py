@@ -8,13 +8,7 @@ and resilient to partial updates from nodes. Keep values JSON-serializable.
 
 from typing import Annotated, Any, TypedDict
 
-try:
-    # Preferred message reducer for conversation histories
-    from langgraph.graph.message import add_messages  # type: ignore
-except Exception:  # pragma: no cover
-
-    def add_messages(x, y):  # type: ignore
-        return (x or []) + (y or [])
+from langgraph.graph.message import add_messages  # type: ignore
 
 
 class HistoryMessage(TypedDict, total=False):
@@ -75,6 +69,8 @@ class CodeReviewState(TypedDict, total=False):
     chat_context_docs: list[dict[str, Any]] | None
     # Chat result
     chat_response: str | None
+    # Optional per-request override for LLM model
+    llm_model: str | None
 
 
 def initial_state(
