@@ -73,6 +73,8 @@ class CodeReviewState(TypedDict, total=False):
     # Chat context from RAG
     chat_query: str | None
     chat_context_docs: list[dict[str, Any]] | None
+    # Chat result
+    chat_response: str | None
 
 
 def initial_state(

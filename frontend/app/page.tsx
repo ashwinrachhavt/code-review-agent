@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThreadSidebar } from '@/components/ThreadSidebar';
 import { AnalyzeForm } from '@/components/AnalyzeForm';
-import { ChatInterface } from '@/components/ChatInterface';
+import ChatbotUI from '@/components/ChatbotUI';
 import { Progress } from '@/components/ui/progress';
 import { useSSEStream } from '@/lib/hooks/useSSEStream';
 import ReactMarkdown from 'react-markdown';
@@ -92,6 +92,23 @@ export default function Page() {
     }
   }, [activeThread]);
 
+  // Listen for chat completion events from ChatInterface to invalidate queries
+  useEffect(() => {
+    const handler = (e: Event) => {
+      try {
+        const anyEvent = e as CustomEvent<{ threadId?: string }>;
+        const tid = anyEvent?.detail?.threadId;
+        if (!tid) return;
+        qc.invalidateQueries({ queryKey: ['thread', tid] }).catch(() => {});
+        qc.invalidateQueries({ queryKey: ['threads', 50] }).catch(() => {});
+      } catch {}
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('cra:thread-updated', handler);
+      return () => window.removeEventListener('cra:thread-updated', handler);
+    }
+  }, [qc]);
+
   const handleNewThread = () => {
     setActiveThreadId(null);
     setShowAnalysis(false);
@@ -159,7 +176,7 @@ export default function Page() {
           {/* Chat Sidebar */}
           {showAnalysis && (
             <div className="w-96 border-l flex flex-col">
-              <ChatInterface threadId={activeThreadId} initialMessages={chatMessages} />
+              <ChatbotUI threadId={activeThreadId} initialMessages={chatMessages} />
             </div>
           )}
         </div>

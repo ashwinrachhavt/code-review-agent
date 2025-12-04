@@ -44,6 +44,20 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
 
     // AI Elements provides ConversationScrollButton; no manual scroll needed here
 
+    const refreshThread = async () => {
+        if (!threadId) return;
+        try {
+            const res = await fetch(`/api/threads/${threadId}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (Array.isArray(data?.messages)) {
+                setMessages(data.messages as Message[]);
+            }
+        } catch {
+            // ignore
+        }
+    };
+
     const handlePromptSubmit = async (
         _message: any,
         e: React.FormEvent<HTMLFormElement>
@@ -69,6 +83,7 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
                 headers: {
                     'Content-Type': 'application/json',
                     'x-thread-id': threadId,
+                    'Accept': 'text/event-stream',
                 },
                 body: JSON.stringify({
                     messages: historyToSend,
@@ -82,12 +97,31 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
             let assistantContent = '';
 
             if (reader) {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                let buffer = '';
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    assistantContent += chunk;
+                const processEvent = (evt: string) => {
+                    const dataLines = evt
+                        .split('\n')
+                        .filter((line) => line.startsWith('data: '))
+                        .map((line) => line.slice(6));
+                    if (dataLines.length === 0) return;
+
+                    const payload = dataLines.join('\n');
+                    const trimmed = payload.trim();
+
+                    if (trimmed.startsWith(':::progress:')) return;
+                    if (trimmed === ':::done') {
+                        // Ensure persisted assistant message shows in sidebar/state
+                        refreshThread();
+                        try {
+                            // Notify parent/page to invalidate queries (threads + active thread)
+                            window.dispatchEvent(new CustomEvent('cra:thread-updated', { detail: { threadId } }));
+                        } catch {}
+                        return;
+                    }
+                    if (!payload) return;
+
+                    assistantContent += payload + '\n\n';
 
                     // Update the last message (assistant's placeholder)
                     setMessages((prev) => {
@@ -98,7 +132,36 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
                         }
                         return newMessages;
                     });
+                };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const events = buffer.split('\n\n');
+                    buffer = events.pop() ?? '';
+
+                    for (const evt of events) {
+                        processEvent(evt);
+                    }
                 }
+
+                if (buffer.trim()) {
+                    processEvent(buffer);
+                }
+            }
+
+            // If nothing arrived, show a helpful fallback
+            if (!assistantContent.trim()) {
+                setMessages((prev) => {
+                    const newMessages = [...prev];
+                    const lastMsg = newMessages[newMessages.length - 1];
+                    if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.content) {
+                        lastMsg.content = 'No response generated. If this thread has no prior analysis, run an analysis first, then ask your question.';
+                    }
+                    return newMessages;
+                });
             }
         } catch (error) {
             console.error('Chat error:', error);

@@ -194,6 +194,11 @@ async def explain(
         )
 
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
+    # Ensure thread exists so messages persist even if chat is called first
+    try:
+        repo.create_thread(thread_id, title=f"Analysis {thread_id[:8]}")
+    except Exception:
+        pass
 
     # Create thread immediately
     try:
@@ -530,6 +535,7 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
 
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
     question = ""
+    incoming_history = _history_from_messages(body.messages)
     if body.messages and body.messages[-1].role == "user":
         question = body.messages[-1].content or ""
         # Persist user message
@@ -554,8 +560,55 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
         # final_report, security_report, quality_report, bug_report, vectorstore_id
         chat_state = {**persisted_state, **chat_state}
 
+    # Include recent conversation history for better free-form chat
+    try:
+        _msgs = repo.get_messages(thread_id)
+        persisted_history = [
+            {"role": m.role, "content": m.content} for m in _msgs[-20:]
+        ]
+    except Exception:
+        persisted_history = []
+
+    merged_history: list[dict] = []
+    if persisted_history:
+        merged_history.extend(persisted_history)
+    if incoming_history:
+        tail = set((m.get("role"), m.get("content")) for m in merged_history[-20:])
+        for m in incoming_history:
+            key = (m.get("role"), m.get("content"))
+            if key not in tail:
+                merged_history.append(m)
+    if merged_history:
+        chat_state["history"] = merged_history[-20:]
+
     async def stream_chat() -> AsyncGenerator[str, None]:
-        acc: list[str] = []
+        chunks: list[str] = []
+        final_reply_text: str | None = None
+        persisted = False
+
+        def _append_chunk(text: str) -> None:
+            nonlocal final_reply_text
+            if not text:
+                return
+            chunks.append(text)
+            final_reply_text = "".join(chunks)
+
+        def _persist_assistant_reply() -> None:
+            nonlocal persisted, final_reply_text
+            if persisted:
+                return
+            try:
+                reply_text = (final_reply_text or "".join(chunks)).strip()
+                if reply_text:
+                    repo.add_message(thread_id, "assistant", reply_text)
+                    # Touch thread.updated_at without changing other fields
+                    repo.update_thread(thread_id, title=None)
+                persisted = True
+            except Exception as persist_err:
+                logger.warning("Chat persistence failed for %s: %s", thread_id, persist_err)
+
+        # Emit initial progress to nudge clients to render
+        yield sse(":::progress: 5")
         try:
             async for event in graph_app.astream_events(
                 chat_state,
@@ -574,73 +627,81 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
                     elif isinstance(chunk, dict):
                         content = chunk.get("content", "")
                     if content:
-                        acc.append(content)
-                        # Plain text streaming: emit line-chunks to avoid client buffering
-                        if not content.endswith("\n"):
-                            yield content + "\n"
-                        else:
-                            yield content
+                        _append_chunk(content)
+                        # Stream as SSE for consistency with frontend parsing
+                        yield sse(content)
 
                 if etype == "on_node_end" and name == "chat_reply":
                     out = data.get("output") or data.get("result") or data.get("state") or {}
                     if isinstance(out, dict):
-                        text = out.get("chat_response") or out.get("final_report")
-                        if text and not acc:
+                        text = out.get("chat_response")
+                        if text and not chunks:
                             # If no token stream, emit full text in paragraphs
                             for para in str(text).split("\n\n"):
                                 p = para.strip()
                                 if p:
-                                    yield p + "\n"
-                            acc.append(str(text))
+                                    yield sse(p)
+                            _append_chunk(str(text))
+                        # Persist promptly on node completion
+                        _persist_assistant_reply()
 
                 # Some langgraph versions only surface final output on graph end
-                if etype == "on_graph_end" and not acc:
+                if etype == "on_graph_end" and not chunks:
                     out = data.get("output") or data.get("result") or {}
                     if isinstance(out, dict):
-                        text = out.get("chat_response") or out.get("final_report")
+                        text = out.get("chat_response")
                         if text:
                             for para in str(text).split("\n\n"):
                                 p = para.strip()
                                 if p:
-                                    yield p + "\n"
-                            acc.append(str(text))
+                                    yield sse(p)
+                            _append_chunk(str(text))
+                        _persist_assistant_reply()
         except Exception as e:
             logger.error("Chat streaming failed: %s", e)
-            yield sse("Sorry, I encountered an error generating a response.")
+            fallback = "Sorry, I encountered an error generating a response."
+            yield sse(fallback)
+            _append_chunk(fallback)
 
         # If nothing was emitted via events, fall back to a final invoke
-        if not acc:
+        if not chunks:
             try:
                 final = await graph_app.ainvoke(
                     chat_state, config={"configurable": {"thread_id": thread_id}}
                 )
-                text = (final or {}).get("chat_response") or (final or {}).get("final_report")
+                text = (final or {}).get("chat_response")
                 if text:
                     for para in str(text).split("\n\n"):
                         p = para.strip()
                         if p:
-                            yield p + "\n"
-                    acc.append(str(text))
+                            yield sse(p)
+                    _append_chunk(str(text))
+                _persist_assistant_reply()
             except Exception as inv_err:
                 logger.error("Chat fallback ainvoke failed: %s", inv_err)
 
-        # Persist assistant reply and bump thread updated_at for sidebar sorting
-        try:
-            if acc:
-                reply_text = "".join(acc)
-                repo.add_message(thread_id, "assistant", reply_text)
-                # Touch thread.updated_at without changing other fields
-                repo.update_thread(thread_id, title=None)
-        except Exception:
-            pass
+        # Absolute fallback so the UI always receives a response
+        if not chunks:
+            fallback_text = (
+                "No response generated. If this thread has no prior analysis, run an analysis "
+                "first, then ask a follow-up question."
+            )
+            yield sse(fallback_text)
+            _append_chunk(fallback_text)
+            _persist_assistant_reply()
+
+        # Final done marker and 100% progress to signal completion
+        yield sse(":::progress: 100")
+        yield sse(":::done")
 
     headers = {
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
         "Connection": "keep-alive",
         "x-thread-id": thread_id,
+        "Access-Control-Expose-Headers": "x-thread-id",
     }
-    return StreamingResponse(stream_chat(), media_type="text/plain", headers=headers)
+    return StreamingResponse(stream_chat(), media_type="text/event-stream", headers=headers)
 
 
 @router.get("/threads")

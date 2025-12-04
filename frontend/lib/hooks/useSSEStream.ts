@@ -92,6 +92,13 @@ export function useSSEStream(
                   continue;
                 }
 
+                // Done marker — do not render, just complete
+                if (payload.trim() === ':::done') {
+                  setIsLoading(false);
+                  options.onComplete?.();
+                  continue;
+                }
+
                 // Normal content
                 if (payload.trim()) {
                   setData((prev) => prev + payload + '\n\n');
