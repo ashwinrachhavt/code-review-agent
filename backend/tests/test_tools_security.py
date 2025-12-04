@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 
 from backend.graph.tools.radon_tool import radon_complexity_tool
-from backend.tools.security_tooling import scan_bandit, scan_semgrep
+from backend.graph.tools.security_tools import bandit_scan, semgrep_scan
 
 
 def test_bandit_and_semgrep_shape(monkeypatch) -> None:
     code = "print('hello')\n"
-    res_b = scan_bandit(code, language="python")
+    res_b = bandit_scan(code, language="python")
     assert "available" in res_b and "findings" in res_b
-    res_s = scan_semgrep(code, language="python")
+    res_s = semgrep_scan(code, language="python")
     assert "available" in res_s and "findings" in res_s
 
 

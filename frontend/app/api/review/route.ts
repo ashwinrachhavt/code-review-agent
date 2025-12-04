@@ -7,13 +7,12 @@ const BACKEND_URL =
   "http://localhost:8000";
 
 export async function POST(req: Request) {
-  const { id, messages, agents, mode, code, entry, chat_query, files } = await req.json();
+  const { id, messages, agents, mode, code, chat_query, files } = await req.json();
 
   // Determine intent: analysis vs chat
   const hasCode = typeof code === 'string' && code.trim().length > 0;
   const hasFiles = Array.isArray(files) && files.length > 0;
-  const hasEntry = typeof entry === 'string' && entry.trim().length > 0;
-  const isChat = (!hasCode && !hasFiles && !hasEntry) || (String(mode).toLowerCase() === 'chat');
+  const isChat = (!hasCode && !hasFiles) || (String(mode).toLowerCase() === 'chat');
 
   const lastUser = Array.isArray(messages)
     ? [...messages].reverse().find((m: any) => (m?.role || '').toLowerCase() === 'user')
@@ -36,10 +35,8 @@ export async function POST(req: Request) {
     chat_query: derivedChatQuery,
   };
   if (hasCode) body.code = code;
-  if (hasEntry) body.entry = entry;
   if (hasFiles) {
     body.files = files.map((f: any) => ({ path: f.path, content: f.content }));
-    body.source = 'folder';
   }
 
   const res = await fetch(`${BACKEND_URL}/explain`, {

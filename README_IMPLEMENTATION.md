@@ -10,7 +10,7 @@ Successfully implemented a **production-ready full-stack code review agent** wit
 - **Expert LLM Nodes**: Security, API, Database specialists
 - **AST Analysis**: Tree-sitter for Python, JavaScript, TypeScript
 - **RAG System**: Qdrant vector retrieval for large codebases
-- **Input Modes**: Paste, Upload, CLI
+- **Input Modes**: Paste, Upload
 - **API Endpoints**: 5 REST endpoints with SSE streaming
 - **Thread Persistence**: SQLite with conversation history
 
@@ -46,7 +46,6 @@ npm run dev
 ✅ Thread persistence & history
 ✅ Chat with context retrieval
 ✅ Multiple input modes
-✅ CLI for local projects
 
 ## Stats
 
@@ -62,7 +61,6 @@ npm run dev
 - `graph/nodes/collector.py`
 - `graph/nodes/ast_tree_sitter.py`
 - `graph/nodes/chat_context_enrich.py`
-- `cli/explain.py`
 - `prompts/specialists/` (3 templates)
 - `app/api/routes.py` (upload endpoint)
 

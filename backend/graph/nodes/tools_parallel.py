@@ -23,7 +23,7 @@ def tools_parallel_node(state: dict[str, Any]) -> dict[str, Any]:
     logger.debug("Running tools in parallel (blob_len=%d files=%d)", len(code), len(files))
 
     if files:
-        # Folder mode: run per-file for security; concatenate for quality metrics
+        # Files mode: run per-file for security; concatenate for quality metrics
         sample = files[:25]
 
         bandit_res = {"available": True, "findings": []}

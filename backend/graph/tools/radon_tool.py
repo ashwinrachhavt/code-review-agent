@@ -3,6 +3,9 @@ from __future__ import annotations
 """Radon complexity tool wrapper.
 
 Computes cyclomatic complexity summary and returns a JSON report.
+
+Optional dependency: requires the ``radon`` package. If unavailable,
+the tool degrades gracefully and returns empty metrics.
 """
 
 import json
@@ -11,15 +14,12 @@ from typing import Any
 
 from langchain_core.tools import tool  # type: ignore
 
-try:
-    from radon.complexity import cc_visit  # type: ignore
-except Exception:  # pragma: no cover
-
-    def cc_visit(_code: str):  # type: ignore
-        return []
-
 
 def _summary(code: str) -> dict[str, Any]:
+    try:
+        from radon.complexity import cc_visit  # type: ignore
+    except Exception as e:  # pragma: no cover - optional dependency
+        return {"avg": 0.0, "worst": 0.0, "offenders": [], "count": 0, "error": str(e)}
     try:
         blocks = cc_visit(code or "")
     except Exception as e:  # SyntaxError, ValueError, etc. on non-Python blobs

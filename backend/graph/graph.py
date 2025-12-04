@@ -9,10 +9,10 @@ Nodes are added here and edges defined using standard LangGraph patterns.
 import os
 from typing import Any
 
+from langgraph.checkpoint.memory import MemorySaver  # type: ignore
 from langgraph.graph import END, START, StateGraph  # type: ignore
 
 from backend.app.core.config import Settings, get_settings
-from backend.graph.memory.sqlite_checkpoint import get_checkpointer
 from backend.graph.nodes.ast_tree_sitter import ast_tree_sitter_node
 from backend.graph.nodes.chat_context_enrich import chat_context_enrich_node
 from backend.graph.nodes.chat_reply import chat_reply_node
@@ -125,30 +125,11 @@ def build_graph(settings: Settings | None = None) -> Any:
     graph.add_edge("chat_reply", "persist")
     graph.add_edge("persist", END)
 
-    # Checkpointer wiring (SQLite preferred) - opt-in via env to simplify tests
+    # Optional in-memory checkpointer (no SQLite)
     use_checkpointer = str(os.getenv("LANGGRAPH_CHECKPOINTER", "0")).lower() in {
         "1",
         "true",
         "yes",
     }
-    if use_checkpointer:
-        # Prefer a safe in-memory checkpointer unless explicitly overridden.
-        backend_pref = str(os.getenv("LANGGRAPH_CHECKPOINTER_BACKEND", "memory")).lower()
-        try:
-            if backend_pref == "sqlite":
-                cp = get_checkpointer(settings.DATABASE_URL)
-            else:
-                from langgraph.checkpoint.memory import MemorySaver  # type: ignore
-
-                cp = MemorySaver()
-            # Guard against misconfigured backends returning context managers
-            if not hasattr(cp, "get_next_version"):
-                from langgraph.checkpoint.memory import MemorySaver  # type: ignore
-
-                cp = MemorySaver()
-            app = graph.compile(checkpointer=cp)
-        except Exception:
-            app = graph.compile()
-    else:
-        app = graph.compile()
+    app = graph.compile(checkpointer=MemorySaver()) if use_checkpointer else graph.compile()
     return app

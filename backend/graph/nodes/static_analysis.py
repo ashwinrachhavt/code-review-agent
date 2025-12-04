@@ -3,19 +3,14 @@ from __future__ import annotations
 """Static analysis node: code quality metrics and bug heuristics.
 
 Combines radon complexity metrics with simple regex-based bug pattern checks.
+
+Optional dependency: ``radon`` for cyclomatic complexity. When not installed,
+complexity metrics are empty but regex-based bug heuristics still run.
 """
 
 import re
 import statistics
 from typing import Any
-
-try:
-    from radon.complexity import cc_visit  # type: ignore
-except Exception:  # pragma: no cover
-
-    def cc_visit(_code: str):  # type: ignore
-        return []
-
 
 COMMON_BUG_PATTERNS = [
     (re.compile(r"except\s+Exception\s*:\s*pass"), "swallowed_exception"),
@@ -26,6 +21,11 @@ COMMON_BUG_PATTERNS = [
 
 
 def _complexity_summary(code: str) -> dict[str, Any]:
+    try:
+        from radon.complexity import cc_visit  # type: ignore
+    except Exception:
+        # Radon not installed; return empty metrics
+        return {"avg": 0.0, "worst": 0.0, "offenders": [], "count": 0}
     try:
         blocks = cc_visit(code or "")
     except Exception:

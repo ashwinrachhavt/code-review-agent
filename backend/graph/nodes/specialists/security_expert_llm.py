@@ -10,16 +10,11 @@ import json
 import logging
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+
 from backend.app.core.config import get_settings
 from backend.prompts.loader import get_prompt
-
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_openai import ChatOpenAI
-except Exception:  # pragma: no cover
-    ChatOpenAI = None
-    SystemMessage = None
-    HumanMessage = None
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +40,7 @@ def security_expert_node(state: dict[str, Any]) -> dict[str, Any]:
     default_analysis = {"critical": [], "important": [], "recommendations": []}
 
     # Check if we have OpenAI configured
-    if not settings.OPENAI_API_KEY or ChatOpenAI is None:
+    if not settings.OPENAI_API_KEY:
         logger.warning("Security expert: OpenAI not configured, skipping LLM analysis")
         return {"security_expert_analysis": default_analysis}
 

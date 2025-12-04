@@ -194,7 +194,7 @@ Good luck! 🚀
 
 - Backend (`backend/`): FastAPI `/explain`, `/analyze`, `/chat` stream incremental output as Server‑Sent Events. A compact LangGraph flow runs Quality, Bug, Security heuristics, then optional Bandit + Semgrep tooling, and finally an OpenAI synthesis that streams tokens. Progress markers are emitted as `:::progress: <0-100>` lines.
 - Graph (`backend/graph/…`): Nodes per concern (router → static → security → experts loop → synthesis). Checkpointing via LangGraph (in‑memory by default, Redis optional).
-- Tools (`backend/tools/security_tooling.py`): Wrappers for Bandit and Semgrep with graceful fallbacks when tools are unavailable.
+- Tools (`backend/graph/tools/security_tools.py`): Bandit and Semgrep integrations with graceful fallbacks when tools are unavailable.
 - Frontend (`frontend/`): React + CopilotKit UI. `CodeExplainer` performs a streaming `fetch` to `/explain`, renders activity logs, and shows a progress bar and streamed report.
 
 #### Architecture Diagram (Mermaid)

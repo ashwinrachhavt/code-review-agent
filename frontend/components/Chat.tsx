@@ -38,8 +38,7 @@ export default function Chat() {
     const [progress, setProgress] = useState(0);
     const [running, setRunning] = useState(false);
     const [chatInput, setChatInput] = useState("");
-    const [folderFiles, setFolderFiles] = useState<{ path: string; content: string }[]>([]);
-    const [folderPicked, setFolderPicked] = useState(false);
+    
 
     // Stable thread id for this Chat session to enable backend memory (client-only)
     const [threadId, setThreadId] = useState<string>("");
@@ -162,115 +161,7 @@ export default function Chat() {
         }
     };
 
-    const handleFolderPick: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
-        const fileList = e.currentTarget.files;
-        if (!fileList) {
-            setFolderFiles([]);
-            setFolderPicked(false);
-            return;
-        }
-        const allowed = new Set([".py", ".js", ".ts", ".tsx", ".jsx", ".java"]);
-        const entries: { path: string; content: string }[] = [];
-        for (const file of Array.from(fileList)) {
-            const name = (file as any).webkitRelativePath || file.name;
-            const lower = name.toLowerCase();
-            const ext = lower.slice(lower.lastIndexOf('.'));
-            if (!allowed.has(ext)) continue;
-            try {
-                const content = await file.text();
-                entries.push({ path: name, content });
-            } catch {
-                // skip unreadable files
-            }
-        }
-        setFolderFiles(entries);
-        setFolderPicked(true);
-    };
-
-    const handleRunFolder = async () => {
-        if (!folderFiles.length) return;
-        // Cancel any existing stream
-        abortRef.current?.abort();
-        abortRef.current = new AbortController();
-        setRunning(true);
-        setProgress(5);
-
-        // Create a user message describing the folder upload
-        const summary = `Uploaded ${folderFiles.length} files for review.`;
-        const userMsg: ChatMessage = { id: Date.now().toString(), role: "user", content: summary };
-        setMessages([userMsg]);
-
-        try {
-            const res = await fetch("/api/review", {
-                method: "POST",
-                headers: { "Accept": "text/event-stream", "Content-Type": "application/json" },
-                body: JSON.stringify({ id: threadId, messages: [userMsg], files: folderFiles }),
-                signal: abortRef.current.signal,
-            });
-
-            const th = res.headers.get("x-thread-id");
-            if (th) {
-                if (th !== threadId) setThreadId(th);
-                if (th !== serverThreadId) setServerThreadId(th);
-            }
-
-            if (!res.body) throw new Error("No response body for streaming");
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-            let eventLines: string[] = [];
-            let assistantContent = "";
-            setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "assistant", content: "" }]);
-
-            const emitPayload = (payload: string) => {
-                if (!payload) return;
-                if (payload.startsWith(':::progress:')) {
-                    const m = payload.match(/:::progress:\s*(\d+)/);
-                    if (m) setProgress(parseInt(m[1], 10));
-                    return;
-                }
-                assistantContent += payload + "\n";
-                setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (last && last.role === "assistant") {
-                        return [...prev.slice(0, -1), { ...last, content: assistantContent }];
-                    }
-                    return [...prev, { id: (Date.now() + 2).toString(), role: "assistant", content: payload }];
-                });
-            };
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                let idx: number;
-                while ((idx = buffer.indexOf('\n')) !== -1) {
-                    const raw = buffer.slice(0, idx);
-                    buffer = buffer.slice(idx + 1);
-                    const line = raw.replace(/\r?$/, '');
-                    if (line === '') {
-                        if (eventLines.length) {
-                            emitPayload(eventLines.join('\n'));
-                            eventLines = [];
-                        }
-                        continue;
-                    }
-                    if (line.startsWith('data:')) eventLines.push(line.slice(5).trimStart());
-                    else emitPayload(line.trim());
-                }
-            }
-            const tail = buffer.replace(/\r?\n$/, '');
-            if (tail) {
-                if (tail.startsWith('data:')) emitPayload(tail.slice(5).trimStart());
-                else emitPayload(tail.trim());
-            }
-            setProgress(100);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setRunning(false);
-        }
-    };
+    
 
     const handleChatSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -340,40 +231,7 @@ export default function Chat() {
         <main style={{ maxWidth: 980, margin: "24px auto", padding: "0 16px" }}>
             <h1 style={{ fontSize: 22, marginBottom: 12 }}>Smart Multi‑Agent Chat</h1>
             <CodeEditor onRun={handleRun} disabled={running} />
-            {/* Folder upload panel */}
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <label style={{ fontSize: 12, opacity: 0.9 }}>Upload project folder:</label>
-                <input
-                    type="file"
-                    // @ts-ignore - non-standard but widely supported for directory selection
-                    webkitdirectory=""
-                    multiple
-                    onChange={handleFolderPick}
-                    disabled={running}
-                />
-                {folderPicked && (
-                    <span style={{ fontSize: 12, opacity: 0.8 }}>
-                        Selected {folderFiles.length} files
-                    </span>
-                )}
-                <button
-                    type="button"
-                    onClick={handleRunFolder}
-                    disabled={running || !folderFiles.length}
-                    style={{
-                        padding: '6px 10px',
-                        background: running || !folderFiles.length ? '#94a3b8' : '#0ea5e9',
-                        color: 'white',
-                        borderRadius: 6,
-                        border: 'none',
-                        cursor: running || !folderFiles.length ? 'not-allowed' : 'pointer',
-                        fontSize: 12,
-                    }}
-                    aria-disabled={running || !folderFiles.length}
-                >
-                    {running ? 'Analyzing…' : 'Run Folder Review'}
-                </button>
-            </div>
+            
             <ProgressBar value={progress} />
             {/* Lightweight memory panel for context visibility (client-only to prevent hydration mismatches) */}
             {mounted && serverThreadId && <MemoryPanel threadId={serverThreadId} />}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Normalizes input modalities:
 - pasted code → single virtual file
-- folder/cli files → filters scannable files and builds summary
+- folder files → filters scannable files and builds summary
 
 Outputs into state:
 - files: List[dict] {path, language, size, content}
@@ -12,13 +12,7 @@ Outputs into state:
 - code: aggregated sample content (best-effort) for tools expecting a single blob
 """
 
-import os
-from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
-
-from backend.app.core.config import get_settings
-from backend.app.services.qdrant_service import collection_name_for_thread, get_qdrant_client
 
 _SCANNABLE_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".java"}
 
@@ -57,23 +51,18 @@ def _filter_files(files: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     return out
 
 
-def _iter_disk_files(root: Path) -> Iterable[Path]:
-    for dirpath, _, files in os.walk(root):
-        for fn in files:
-            p = Path(dirpath) / fn
-            if p.suffix.lower() in _SCANNABLE_EXTS:
-                yield p
+ 
 
 
 def context_node(state: dict[str, Any]) -> dict[str, Any]:
     source = (state.get("source") or "").lower() or None
     code = state.get("code") or ""
     files = state.get("files")  # may be None or list of dicts
-    settings = get_settings()
+    
 
     # Determine mode if not explicitly provided
     if not source:
-        source = "folder" if files else "pasted"
+        source = "files" if files else "pasted"
     state["source"] = source
 
     collected_files: list[dict[str, Any]] = []
@@ -84,53 +73,6 @@ def context_node(state: dict[str, Any]) -> dict[str, Any]:
             {"path": "<pasted>", "language": lang, "size": len(code or ""), "content": code or ""}
         ]
     else:
-        # If files not provided but we have a folder hint, scan disk
-        if (not files) and (state.get("folder_path") or state.get("entry")):
-            folder = str(state.get("folder_path") or state.get("entry") or "")
-            p = Path(folder)
-            disk_files: list[dict[str, Any]] = []
-            if p.exists() and p.is_dir():
-                total_bytes = 0
-                for fp in _iter_disk_files(p):
-                    try:
-                        text = fp.read_text(errors="ignore")
-                    except Exception:
-                        continue
-                    disk_files.append({"path": str(fp), "content": text})
-                    total_bytes += len(text.encode("utf-8", errors="ignore"))
-                    if len(disk_files) >= 500:
-                        break
-                # Save for downstream visibility
-                state["files"] = disk_files
-                state["context_stats"] = {
-                    "disk_files": len(disk_files),
-                    "disk_bytes": int(total_bytes),
-                }
-                files = disk_files
-                # Optional: build Qdrant index when content is large
-                need_vs = (len(disk_files) >= settings.QDRANT_MIN_FILES) or (
-                    total_bytes >= settings.QDRANT_MIN_BYTES
-                )
-                thread_id = str((state.get("thread_id") or "").strip() or "")
-                if need_vs and thread_id:
-                    try:
-                        from langchain_community.vectorstores import Qdrant  # type: ignore
-                        from langchain_openai import OpenAIEmbeddings  # type: ignore
-
-                        client = get_qdrant_client()
-                        collection = collection_name_for_thread(thread_id)
-                        texts = [f"File: {f['path']}\n{f['content']}" for f in disk_files]
-                        Qdrant.from_texts(
-                            texts=texts,
-                            embedding=OpenAIEmbeddings(),
-                            client=client,
-                            collection_name=collection,
-                        )
-                        state["vectorstore_id"] = collection
-                    except Exception:
-                        state["vectorstore_id"] = None
-            else:
-                state["source"] = "pasted"
         collected_files = _filter_files(files if isinstance(files, list) else [])
 
     # Summary

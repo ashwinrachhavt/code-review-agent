@@ -7,8 +7,9 @@ Provides a singleton local Qdrant client for in-memory (default) or file-backed 
 
 from functools import lru_cache
 
-from backend.app.core.config import get_settings
 from qdrant_client import QdrantClient  # type: ignore
+
+from backend.app.core.config import get_settings
 
 
 @lru_cache(maxsize=1)

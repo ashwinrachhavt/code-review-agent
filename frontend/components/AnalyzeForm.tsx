@@ -1,20 +1,18 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Upload, Code, Send, Folder } from 'lucide-react';
+import { Upload, Code, Send } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 
 interface AnalyzeFormProps {
-    onSubmit: (data: { code?: string; files?: File[]; entry?: string; mode: string }) => void;
+    onSubmit: (data: { code?: string; files?: File[]; mode: string }) => void;
     isLoading: boolean;
 }
 
 export function AnalyzeForm({ onSubmit, isLoading }: AnalyzeFormProps) {
     const [code, setCode] = useState('');
     const [files, setFiles] = useState<File[]>([]);
-    const [folderPath, setFolderPath] = useState('');
     const [activeTab, setActiveTab] = useState('paste');
 
     const handleSubmit = () => {
@@ -22,8 +20,6 @@ export function AnalyzeForm({ onSubmit, isLoading }: AnalyzeFormProps) {
             onSubmit({ code, mode: 'orchestrator' });
         } else if (activeTab === 'upload' && files.length > 0) {
             onSubmit({ files, mode: 'orchestrator' });
-        } else if (activeTab === 'folder' && folderPath.trim()) {
-            onSubmit({ entry: folderPath, mode: 'orchestrator' });
         }
     };
 
@@ -40,7 +36,7 @@ export function AnalyzeForm({ onSubmit, isLoading }: AnalyzeFormProps) {
     return (
         <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="paste">
                         <Code className="w-4 h-4 mr-2" />
                         Paste
@@ -48,10 +44,6 @@ export function AnalyzeForm({ onSubmit, isLoading }: AnalyzeFormProps) {
                     <TabsTrigger value="upload">
                         <Upload className="w-4 h-4 mr-2" />
                         Upload
-                    </TabsTrigger>
-                    <TabsTrigger value="folder">
-                        <Folder className="w-4 h-4 mr-2" />
-                        Folder
                     </TabsTrigger>
                 </TabsList>
 
@@ -141,30 +133,7 @@ export function AnalyzeForm({ onSubmit, isLoading }: AnalyzeFormProps) {
                     </Button>
                 </TabsContent>
 
-                <TabsContent value="folder" className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="folder">Server-side Folder Path</Label>
-                        <Input
-                            id="folder"
-                            placeholder="/path/to/your/project"
-                            value={folderPath}
-                            onChange={(e) => setFolderPath(e.target.value)}
-                            disabled={isLoading}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Enter the absolute path to a folder on the server to scan.
-                        </p>
-                    </div>
-                    <Button
-                        onClick={handleSubmit}
-                        disabled={!folderPath.trim() || isLoading}
-                        className="w-full"
-                        size="lg"
-                    >
-                        <Send className="w-4 h-4 mr-2" />
-                        {isLoading ? 'Analyzing...' : 'Scan Folder'}
-                    </Button>
-                </TabsContent>
+                
             </Tabs>
         </div>
     );

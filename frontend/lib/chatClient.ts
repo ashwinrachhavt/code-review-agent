@@ -13,7 +13,7 @@ export async function streamChat(
     onError?: (err: unknown) => void;
     onDone?: () => void;
   } = {},
-  options: { agents?: string[]; mode?: string; code?: string; entry?: string; chatQuery?: string } = {}
+  options: { agents?: string[]; mode?: string; code?: string; chatQuery?: string } = {}
 ) {
   const res = await fetch(apiUrl, {
     method: 'POST',
@@ -24,7 +24,6 @@ export async function streamChat(
       agents: options.agents,
       mode: options.mode,
       code: options.code,
-      entry: options.entry,
       chat_query: options.chatQuery,
     }),
   });

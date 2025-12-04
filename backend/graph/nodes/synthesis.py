@@ -9,16 +9,10 @@ markdown rendering of the collected expert reports.
 import json
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage  # type: ignore
+from langchain_openai import ChatOpenAI  # type: ignore
+
 from backend.app.core.config import get_settings
-
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage  # type: ignore
-    from langchain_openai import ChatOpenAI  # type: ignore
-except Exception:  # pragma: no cover
-    ChatOpenAI = None  # type: ignore
-    SystemMessage = None  # type: ignore
-    HumanMessage = None  # type: ignore
-
 from backend.prompts.loader import get_prompt
 
 SYNTHESIS_SYSTEM_PROMPT = (
@@ -193,10 +187,10 @@ def synthesis_node(state: dict[str, Any]) -> dict[str, Any]:
     # Semantic cache lookup (based on code + current reports)
     # No custom semantic cache; rely on LangChain LLM cache for model outputs.
 
-    if settings.OPENAI_API_KEY and ChatOpenAI is not None and SystemMessage is not None:
+    if settings.OPENAI_API_KEY:
         try:
-            model_name = settings.OPENAI_MODEL
-            llm = ChatOpenAI(model=model_name, temperature=0.2)
+            model_name = state.get("llm_model") or settings.OPENAI_MODEL
+            llm = ChatOpenAI(model=str(model_name), temperature=0.2)
             messages = _messages_from_state(state)
             result = llm.invoke(messages)
             final_text = getattr(result, "content", None) or None

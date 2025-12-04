@@ -1,4 +1,4 @@
-Backend service with FastAPI + LangGraph. Uses a SQLite LangGraph checkpointer and LangChain LLM cache. Supports SSE streaming to the Next.js frontend.
+Backend service with FastAPI + LangGraph. Supports SSE streaming to the Next.js frontend.
 
 Quick start
 - Create `.env` from `backend/.env.example` and fill keys.
@@ -17,7 +17,7 @@ Notes
     `langchain-community` providing `RedisSemanticCache`. If embeddings or the
     integration are unavailable, the app falls back gracefully to Redis
     exact-match cache or in-memory cache.
-- LangGraph SQLite checkpointer is optional. Enable with `LANGGRAPH_CHECKPOINTER=1` (uses `DATABASE_URL`) and install dependency via `pip install langgraph-checkpoint-sqlite` or `pip install .[checkpointer]`.
+- Optional in-memory LangGraph checkpointer can be enabled with `LANGGRAPH_CHECKPOINTER=1`.
 - Security tools:
   - Semgrep is required for security scanning. Install with:
     - `pip install semgrep` (recommended in your venv), or

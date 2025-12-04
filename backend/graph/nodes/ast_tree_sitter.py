@@ -12,25 +12,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Try to import tree-sitter libraries
-try:
+# Import tree-sitter libraries (optional)
+try:  # pragma: no cover - optional dependency
+    import tree_sitter_javascript as tsjavascript
     import tree_sitter_python as tspython
     from tree_sitter import Language, Parser
-
-    TREE_SITTER_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    TREE_SITTER_AVAILABLE = False
-    tspython = None
-    Language = None
-    Parser = None
-
-try:
-    import tree_sitter_javascript as tsjavascript
-
-    JAVASCRIPT_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    JAVASCRIPT_AVAILABLE = False
-    tsjavascript = None
+    TS_AVAILABLE = True
+except Exception:
+    TS_AVAILABLE = False
 
 
 def _analyze_python_ast(code: str, path: str) -> list[dict[str, Any]]:
@@ -48,8 +37,7 @@ def _analyze_python_ast(code: str, path: str) -> list[dict[str, Any]]:
     list[dict[str, Any]]
         List of findings
     """
-    if not TREE_SITTER_AVAILABLE or not tspython:
-        return []
+    
 
     findings = []
 
@@ -153,8 +141,7 @@ def _analyze_javascript_ast(code: str, path: str) -> list[dict[str, Any]]:
     list[dict[str, Any]]
         List of findings
     """
-    if not TREE_SITTER_AVAILABLE or not tsjavascript:
-        return []
+    
 
     findings = []
 
@@ -239,9 +226,11 @@ def ast_tree_sitter_node(state: dict[str, Any]) -> dict[str, Any]:
     dict[str, Any]
         Updated state with enhanced ast_report
     """
-    if not TREE_SITTER_AVAILABLE:
+    
+
+    if not TS_AVAILABLE:
         logger.warning("Tree-sitter not available, skipping enhanced AST analysis")
-        return {}
+        return state
 
     files = state.get("files") or []
     all_findings = []

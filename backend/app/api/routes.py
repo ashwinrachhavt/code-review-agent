@@ -5,22 +5,23 @@ from __future__ import annotations
 Keeps routes minimal and defers logic to the LangGraph and memory layer.
 """
 
+import contextlib
+import json
 import re
 import uuid
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Body, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from backend.app.core.logging import get_logger
 from backend.app.core.models import ExplainRequest, Message, ThreadCreate, ThreadUpdate
-import json
 from backend.app.db.repository import repo
 from backend.app.services.cache import (
-    cache_get_json,
-    cache_set_json,
     cache_delete,
     cache_delete_prefix,
+    cache_get_json,
+    cache_set_json,
 )
 from backend.graph.state import initial_state
 
@@ -118,9 +119,11 @@ async def health() -> dict[str, str]:
 @router.get("/admin/db")
 async def db_info() -> dict:
     """Return basic DB and migration info for debugging/hydration checks."""
-    from sqlalchemy import inspect as sa_inspect, text as sa_text
-    from backend.app.db.db import engine
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text as sa_text
+
     from backend.app.core.config import get_settings
+    from backend.app.db.db import engine
 
     settings = get_settings()
     url = str(settings.DATABASE_URL)
@@ -181,30 +184,25 @@ def _history_from_messages(messages: list[Message] | None) -> list[dict[str, str
 @router.post("/explain")
 async def explain(
     request: Request,
-    body: ExplainRequest = Body(...),
+    body: ExplainRequest,
 ) -> StreamingResponse:
     """Stream code review using the compiled graph with minimal routing logic."""
     graph_app = request.app.state.graph_app  # set in main.py
 
     code = _extract_code(body)
-    if not code and (body.mode or "") != "chat" and not body.files and not body.entry:
+    if not code and (body.mode or "") != "chat" and not body.files:
         return StreamingResponse(
-            iter(["Please provide code, files, or a folder path to analyze.\n"]),
+            iter(["Please provide code or files to analyze.\n"]),
             media_type="text/plain",
         )
 
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
     # Ensure thread exists so messages persist even if chat is called first
-    try:
+    with contextlib.suppress(Exception):
         repo.create_thread(thread_id, title=f"Analysis {thread_id[:8]}")
-    except Exception:
-        pass
-
-    # Create thread immediately
-    try:
+    # Create thread immediately (idempotent)
+    with contextlib.suppress(Exception):
         repo.create_thread(thread_id, title=f"Analysis {thread_id[:8]}")
-    except Exception:
-        pass  # Might already exist
 
     logger.info(
         "Explain request: thread_id=%s mode=%s",
@@ -219,119 +217,47 @@ async def explain(
     # Initial state setup
     state = initial_state(code=code, history=history, mode=mode, agents=agents)
     state["thread_id"] = thread_id
+    # Per-request model override from body or header
+    try:
+        override_model = getattr(body, "model", None) or request.headers.get("x-llm-model")
+        if override_model:
+            state["llm_model"] = str(override_model)
+    except Exception:
+        pass
 
     # Determine source and inputs
     source = getattr(body, "source", None)
     if not source:
-        if body.files or body.entry:
-            source = "folder"
-        else:
-            source = "pasted"
+        source = "files" if body.files else "pasted"
 
     state["source"] = str(source)
 
     if body.files:
         state["files"] = [{"path": f.path, "content": f.content} for f in body.files]
 
-    if body.entry:
-        state["folder_path"] = body.entry
+    # Server-side folder scanning via entry/folder_path is not supported
 
     async def event_stream() -> AsyncGenerator[str, None]:
         yield sse(":::progress: 5")
 
-        streamed_chunks: list[str] = []
         final_text: str | None = None
         final_state: dict | None = None
 
         try:
-            async for event in graph_app.astream_events(
-                state,
-                version="v2",
-                config={"configurable": {"thread_id": thread_id}},
-            ):
-                etype = event.get("event")
-                name = event.get("name")
-                data = event.get("data", {})
+            final = await graph_app.ainvoke(
+                state, config={"configurable": {"thread_id": thread_id}}
+            )
+            final_text = (final or {}).get("final_report") or None
+            if isinstance(final, dict):
+                final_state = final
+        except Exception as inv_err:
+            logger.error("Explain ainvoke failed: %s", inv_err)
 
-                # Progress updates based on node completion
-                if etype == "on_node_end":
-                    if name == "router":
-                        yield sse(":::progress: 10")
-                        yield sse("🔎 Router: language detection done.")
-                    elif name == "build_context":
-                        yield sse(":::progress: 20")
-                        yield sse("📚 Context ready.")
-                        stats = data.get("output", {}).get("context_stats", {})
-                        if stats:
-                            yield sse(
-                                f"📚 Context: {stats.get('disk_files', 0)} files ({stats.get('disk_bytes', 0)} bytes)"
-                            )
-                    elif name == "tools_parallel":
-                        yield sse(":::progress: 40")
-                        yield sse("🧪 Tools complete.")
-                    elif name == "collector":
-                        yield sse(":::progress: 60")
-                        yield sse("🧠 Expert analysis collected.")
-                    elif name == "synthesis":
-                        yield sse(":::progress: 90")
-                        out = data.get("output") or {}
-                        # Some langgraph versions provide {"output": {...}} while others may use {"result": {...}}
-                        if not out and isinstance(data, dict):
-                            out = data.get("result") or {}
-                        if isinstance(out, dict):
-                            final_state = out
-                            final_text = out.get("final_report")
-                            # Stream the final report paragraphs immediately
-                            if final_text:
-                                for para in (final_text or "").split("\n\n"):
-                                    p = para.strip()
-                                    if p:
-                                        yield sse(p)
-
-                # Stream LLM tokens for synthesis (when node uses a streaming LLM)
-                if etype == "on_chat_model_stream" and name == "synthesis":
-                    chunk = data.get("chunk")
-                    content = ""
-                    if hasattr(chunk, "content"):
-                        content = chunk.content
-                    elif isinstance(chunk, dict):
-                        content = chunk.get("content", "")
-
-                    if content:
-                        streamed_chunks.append(content)
-                        yield sse(content)
-
-                # Capture graph end outputs if provided
-                if etype == "on_graph_end":
-                    out = data.get("output") or data.get("result") or {}
-                    if isinstance(out, dict):
-                        final_state = out
-                        final_text = final_text or out.get("final_report")
-
-        except Exception as e:
-            logger.error("Streaming failed; falling back to invoke: %s", e)
-
-        # If we reached here without final text (either due to no streaming tokens
-        # or because event payload did not include outputs), do a final ainvoke.
-        if not final_text:
-            try:
-                final = await graph_app.ainvoke(
-                    state, config={"configurable": {"thread_id": thread_id}}
-                )
-                final_text = (final or {}).get("final_report") or None
-                if isinstance(final, dict):
-                    final_state = final
-                if final_text:
-                    for para in final_text.split("\n\n"):
-                        p = para.strip()
-                        if p:
-                            yield sse(p)
-            except Exception as inv_err:
-                logger.error("Fallback ainvoke failed: %s", inv_err)
-
-        # If we streamed chunks but didn't get final_text from node output
-        if not final_text and streamed_chunks:
-            final_text = "".join(streamed_chunks)
+        if final_text:
+            for para in final_text.split("\n\n"):
+                p = para.strip()
+                if p:
+                    yield sse(p)
 
         # Persist thread for sidebar/history
         if final_text:
@@ -403,14 +329,12 @@ async def explain_upload(
     thread_id = str(uuid.uuid4())
 
     # Create thread
-    try:
+    with contextlib.suppress(Exception):
         repo.create_thread(thread_id, title=f"Upload Analysis {thread_id[:8]}")
-    except Exception:
-        pass
 
     state = initial_state(code="", history=[], mode=str(mode), agents=agents)
     state["thread_id"] = thread_id
-    state["source"] = "folder"
+    state["source"] = "files"
     state["files"] = file_inputs
 
     logger.info(
@@ -426,75 +350,27 @@ async def explain_upload(
         yield sse(":::progress: 5")
         yield sse(f"📁 Uploaded {len(file_inputs)} files")
 
-        streamed_chunks: list[str] = []
         final_text: str | None = None
         final_state: dict | None = None
 
         try:
-            async for event in graph_app.astream_events(
-                state,
-                version="v2",
-                config={"configurable": {"thread_id": thread_id}},
-            ):
-                etype = event.get("event")
-                name = event.get("name")
-                data = event.get("data", {})
-
-                if etype == "on_node_end":
-                    if name == "router":
-                        yield sse(":::progress: 10")
-                        yield sse("🔎 Router: language detection done.")
-                    elif name == "build_context":
-                        yield sse(":::progress: 20")
-                        yield sse("📚 Context ready.")
-                    elif name == "tools_parallel":
-                        yield sse(":::progress: 40")
-                        yield sse("🧪 Tools complete.")
-                    elif name == "collector":
-                        yield sse(":::progress: 60")
-                        yield sse("🧠 Expert analysis collected.")
-                    elif name == "synthesis":
-                        yield sse(":::progress: 90")
-                        out = data.get("output") or data.get("result") or {}
-                        if isinstance(out, dict):
-                            final_state = out
-                            final_text = out.get("final_report")
-
-                if etype == "on_chat_model_stream" and name == "synthesis":
-                    chunk = data.get("chunk")
-                    content = ""
-                    if hasattr(chunk, "content"):
-                        content = chunk.content
-                    elif isinstance(chunk, dict):
-                        content = chunk.get("content", "")
-
-                    if content:
-                        streamed_chunks.append(content)
-                        yield sse(content)
+            final = await graph_app.ainvoke(
+                state, config={"configurable": {"thread_id": thread_id}}
+            )
+            final_text = (final or {}).get("final_report") or None
+            if isinstance(final, dict):
+                final_state = final
         except Exception as e:
-            logger.error("Upload streaming failed: %s", e)
-
-        if not final_text:
-            try:
-                final = await graph_app.ainvoke(
-                    state, config={"configurable": {"thread_id": thread_id}}
-                )
-                final_text = (final or {}).get("final_report") or None
-                if isinstance(final, dict):
-                    final_state = final
-                if final_text:
-                    for para in final_text.split("\n\n"):
-                        p = para.strip()
-                        if p:
-                            yield sse(p)
-            except Exception:
-                pass
-
-        if not final_text and streamed_chunks:
-            final_text = "".join(streamed_chunks)
+            logger.error("Upload ainvoke failed: %s", e)
 
         if final_text:
-            try:
+            for para in final_text.split("\n\n"):
+                p = para.strip()
+                if p:
+                    yield sse(p)
+
+        if final_text:
+            with contextlib.suppress(Exception):
                 repo.update_thread(
                     thread_id,
                     report_text=final_text,
@@ -503,8 +379,6 @@ async def explain_upload(
                 )
                 cache_delete(f"threads:item:{thread_id}")
                 cache_delete_prefix("threads:list:")
-            except Exception:
-                pass
 
         yield sse("💬 Chat ready. Use the sidebar to ask follow-ups.")
         yield sse(":::progress: 100")
@@ -539,10 +413,8 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
     if body.messages and body.messages[-1].role == "user":
         question = body.messages[-1].content or ""
         # Persist user message
-        try:
+        with contextlib.suppress(Exception):
             repo.add_message(thread_id, "user", question)
-        except Exception:
-            pass
 
     # Prepare chat state; merge any persisted analysis state so chat is grounded
     # even when the LangGraph checkpointer is disabled or not yet warmed.
@@ -580,6 +452,14 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
                 merged_history.append(m)
     if merged_history:
         chat_state["history"] = merged_history[-20:]
+
+    # Model override
+    try:
+        override_model = getattr(body, "model", None) or request.headers.get("x-llm-model")
+        if override_model:
+            chat_state["llm_model"] = str(override_model)
+    except Exception:
+        pass
 
     async def stream_chat() -> AsyncGenerator[str, None]:
         chunks: list[str] = []
