@@ -13,4 +13,3 @@ sys.dont_write_bytecode = True
 
 # Also set the environment flag so any subprocesses inherit the behavior.
 os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
-

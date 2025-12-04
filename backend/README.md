@@ -7,7 +7,7 @@ Quick start
 
 Notes
 - LangChain LLM cache is enabled in-memory to avoid repeated model calls.
-- LangGraph SQLite checkpointer can be enabled by `LANGGRAPH_CHECKPOINTER=1` (uses `DATABASE_URL`).
+- LangGraph SQLite checkpointer is optional. Enable with `LANGGRAPH_CHECKPOINTER=1` (uses `DATABASE_URL`) and install dependency via `pip install langgraph-checkpoint-sqlite` or `pip install .[checkpointer]`.
 - Security tools:
   - Semgrep is required for security scanning. Install with:
     - `pip install semgrep` (recommended in your venv), or

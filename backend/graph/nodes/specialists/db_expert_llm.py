@@ -55,9 +55,7 @@ def db_expert_node(state: dict[str, Any]) -> dict[str, Any]:
         return {"db_expert_analysis": default_analysis}
 
     # Format prompt without interpreting JSON braces in template
-    prompt_text = prompt_template.replace(
-        "{code_sample}", code_sample or "No code provided"
-    )
+    prompt_text = prompt_template.replace("{code_sample}", code_sample or "No code provided")
 
     try:
         # Call LLM (synchronous)
@@ -93,7 +91,7 @@ def db_expert_node(state: dict[str, Any]) -> dict[str, Any]:
             len(analysis.get("queries", [])),
             len(analysis.get("risks", [])),
         )
-        
+
         return {"db_expert_analysis": analysis}
 
     except json.JSONDecodeError as e:

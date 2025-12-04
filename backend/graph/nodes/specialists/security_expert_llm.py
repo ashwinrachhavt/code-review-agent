@@ -56,11 +56,9 @@ def security_expert_node(state: dict[str, Any]) -> dict[str, Any]:
         return {"security_expert_analysis": default_analysis}
 
     # Format prompt without interpreting JSON braces in template
-    prompt_text = (
-        prompt_template.replace(
-            "{security_report}", json.dumps(security_report, indent=2)
-        ).replace("{code_sample}", code_sample)
-    )
+    prompt_text = prompt_template.replace(
+        "{security_report}", json.dumps(security_report, indent=2)
+    ).replace("{code_sample}", code_sample)
 
     try:
         # Call LLM (synchronous)
@@ -96,7 +94,7 @@ def security_expert_node(state: dict[str, Any]) -> dict[str, Any]:
             len(analysis.get("critical", [])),
             len(analysis.get("important", [])),
         )
-        
+
         return {"security_expert_analysis": analysis}
 
     except json.JSONDecodeError as e:

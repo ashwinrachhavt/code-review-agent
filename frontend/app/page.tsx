@@ -34,40 +34,29 @@ export default function Page() {
   const handleAnalyze = async (formData: { code?: string; files?: File[]; entry?: string; mode: string }) => {
     setShowAnalysis(true);
     setStreamUrl(null);
-    setChatMessages([]); // Reset chat for new analysis
+    setChatMessages([]);
 
-    // Small timeout to reset stream if needed
-    setTimeout(() => {
-      if (formData.files) {
-        // Upload mode
-        const data = new FormData();
-        formData.files.forEach((file) => data.append('files', file));
-        data.append('mode', formData.mode);
-        data.append('agents', 'quality,bug,security');
+    const agents = ['quality', 'bug', 'security'];
+    let body: any = { agents, mode: formData.mode };
 
-        setFetchOptions({
-          method: 'POST',
-          body: data,
-        });
-        setStreamUrl('http://localhost:8000/explain/upload');
-      } else {
-        // Paste or Folder mode
-        const body: any = {
-          mode: formData.mode,
-          agents: ['quality', 'bug', 'security'],
-        };
+    if (formData.files && formData.files.length > 0) {
+      // Read files as text and send via JSON to Next proxy (/api/review)
+      const fileInputs = await Promise.all(
+        formData.files.map(async (f) => ({ path: f.name, content: await f.text() }))
+      );
+      body = { ...body, files: fileInputs, source: 'folder' };
+    } else if (formData.entry) {
+      body = { ...body, entry: formData.entry };
+    } else if (formData.code) {
+      body = { ...body, code: formData.code };
+    }
 
-        if (formData.code) body.code = formData.code;
-        if (formData.entry) body.entry = formData.entry;
-
-        setFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        setStreamUrl('http://localhost:8000/explain');
-      }
-    }, 50);
+    setFetchOptions({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify(body),
+    });
+    setStreamUrl('/api/review');
   };
 
   const handleSelectThread = async (threadId: string) => {

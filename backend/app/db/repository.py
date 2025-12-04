@@ -1,17 +1,17 @@
-import json
-import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from sqlalchemy.orm import Session
-from backend.app.db.models import Thread, Message
+
 from backend.app.db.db import SessionLocal
+from backend.app.db.models import Message, Thread
+
 
 class ThreadRepository:
     """
     Repository for managing threads and messages using SQLAlchemy.
     """
-    
+
     def __init__(self, db: Session | None = None):
         # Prefer short-lived sessions per operation; avoid holding a global session
         self.db = db
@@ -38,7 +38,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def get_thread(self, thread_id: str) -> Optional[Thread]:
+    def get_thread(self, thread_id: str) -> Thread | None:
         db = self._get_session()
         try:
             return db.query(Thread).filter(Thread.id == thread_id).first()
@@ -46,7 +46,13 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def update_thread(self, thread_id: str, report_text: str = None, state: Dict[str, Any] = None, file_count: int = 0):
+    def update_thread(
+        self,
+        thread_id: str,
+        report_text: str = None,
+        state: dict[str, Any] = None,
+        file_count: int = 0,
+    ):
         db = self._get_session()
         try:
             thread = db.query(Thread).filter(Thread.id == thread_id).first()
@@ -70,7 +76,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def list_threads(self, limit: int = 50) -> List[Thread]:
+    def list_threads(self, limit: int = 50) -> list[Thread]:
         db = self._get_session()
         try:
             return db.query(Thread).order_by(Thread.updated_at.desc()).limit(limit).all()
@@ -93,7 +99,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def get_messages(self, thread_id: str) -> List[Message]:
+    def get_messages(self, thread_id: str) -> list[Message]:
         db = self._get_session()
         try:
             return (
@@ -106,6 +112,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-# Global instance for backward compatibility if needed, 
+
+# Global instance for backward compatibility if needed,
 # though dependency injection is preferred in routes.
 repo = ThreadRepository()

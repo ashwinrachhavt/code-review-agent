@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
+
 from backend.app.core.config import get_settings
 from backend.app.db.models import Base
 
@@ -7,11 +8,12 @@ settings = get_settings()
 
 # Use SQLite for simplicity as requested
 engine = create_engine(
-    settings.DATABASE_URL, 
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    settings.DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 
 def _ensure_columns(table: str, required: dict[str, str]) -> None:
     """Ensure columns exist on a SQLite table by issuing ALTER TABLE ADD COLUMN.
@@ -126,6 +128,7 @@ def _migrate_threads_table_if_legacy() -> None:
     except Exception:
         # Best effort; don't break app startup
         pass
+
 
 def get_db():
     """Dependency for getting DB session."""

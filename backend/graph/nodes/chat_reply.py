@@ -50,7 +50,7 @@ def chat_reply_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Get retrieved context docs from RAG (if available)
     chat_context_docs = state.get("chat_context_docs") or []
-    
+
     # Format retrieved context
     context_section = ""
     if chat_context_docs:
@@ -74,20 +74,22 @@ def chat_reply_node(state: dict[str, Any]) -> dict[str, Any]:
         prompt_parts.append(context_section)
         prompt_parts.append("")
 
-    prompt_parts.extend([
-        "## Review Reports",
-        "",
-        "**Security:**",
-        json.dumps(security_report, indent=2),
-        "",
-        "**Quality:**",
-        json.dumps(quality_report, indent=2),
-        "",
-        "**Bugs:**",
-        json.dumps(bug_report, indent=2),
-        "",
-        "Provide a concise, specific answer. Reference line numbers and file paths when relevant.",
-    ])
+    prompt_parts.extend(
+        [
+            "## Review Reports",
+            "",
+            "**Security:**",
+            json.dumps(security_report, indent=2),
+            "",
+            "**Quality:**",
+            json.dumps(quality_report, indent=2),
+            "",
+            "**Bugs:**",
+            json.dumps(bug_report, indent=2),
+            "",
+            "Provide a concise, specific answer. Reference line numbers and file paths when relevant.",
+        ]
+    )
 
     prompt = "\n".join(prompt_parts)
 

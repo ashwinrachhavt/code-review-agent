@@ -6,10 +6,8 @@ Keeps routes minimal and defers logic to the LangGraph and memory layer.
 """
 
 import re
-import asyncio
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import suppress
 
 from fastapi import APIRouter, Body, Request
 from fastapi.responses import StreamingResponse
@@ -80,9 +78,6 @@ def _history_from_messages(messages: list[Message] | None) -> list[dict[str, str
     return [{"role": m.role, "content": m.content} for m in (messages or [])][-20:]
 
 
-
-
-
 @router.post("/explain")
 async def explain(
     request: Request,
@@ -94,11 +89,12 @@ async def explain(
     code = _extract_code(body)
     if not code and (body.mode or "") != "chat" and not body.files and not body.entry:
         return StreamingResponse(
-            iter(["Please provide code, files, or a folder path to analyze.\n"]), media_type="text/plain"
+            iter(["Please provide code, files, or a folder path to analyze.\n"]),
+            media_type="text/plain",
         )
 
     thread_id = body.thread_id or request.headers.get("x-thread-id") or str(uuid.uuid4())
-    
+
     # Create thread immediately
     try:
         repo.create_thread(thread_id, title=f"Analysis {thread_id[:8]}")
@@ -110,30 +106,28 @@ async def explain(
         thread_id,
         body.mode or "orchestrator",
     )
-    
+
     history = _history_from_messages(body.messages)
     mode = body.mode or "orchestrator"
     agents = body.agents or ["quality", "bug", "security"]
-    
+
     # Initial state setup
     state = initial_state(code=code, history=history, mode=mode, agents=agents)
     state["thread_id"] = thread_id
-    
+
     # Determine source and inputs
     source = getattr(body, "source", None)
     if not source:
-        if body.files:
-            source = "folder"
-        elif body.entry:
+        if body.files or body.entry:
             source = "folder"
         else:
             source = "pasted"
-            
+
     state["source"] = str(source)
-    
+
     if body.files:
         state["files"] = [{"path": f.path, "content": f.content} for f in body.files]
-    
+
     if body.entry:
         state["folder_path"] = body.entry
 
@@ -143,7 +137,7 @@ async def explain(
         streamed_chunks: list[str] = []
         final_text: str | None = None
         final_state: dict | None = None
-        
+
         try:
             async for event in graph_app.astream_events(
                 state,
@@ -211,7 +205,7 @@ async def explain(
 
         except Exception as e:
             logger.error("Streaming failed; falling back to invoke: %s", e)
-        
+
         # If we reached here without final text (either due to no streaming tokens
         # or because event payload did not include outputs), do a final ainvoke.
         if not final_text:
@@ -240,18 +234,23 @@ async def explain(
                 # If final_state is missing, try to reconstruct or fetch
                 if not final_state:
                     # Fetch latest state from graph memory if possible, or just save text
-                    pass 
-                
+                    pass
+
                 file_count = len(state.get("files", []))
                 if final_state:
                     file_count = len(final_state.get("files", []))
-                
-                repo.update_thread(thread_id, report_text=final_text, state=final_state or {}, file_count=file_count)
+
+                repo.update_thread(
+                    thread_id,
+                    report_text=final_text,
+                    state=final_state or {},
+                    file_count=file_count,
+                )
                 logger.info(f"Persisted thread {thread_id}")
             except Exception as e:
                 logger.warning("Thread persistence failed: %s", e)
         else:
-             logger.warning(f"No final text to persist for thread {thread_id}")
+            logger.warning(f"No final text to persist for thread {thread_id}")
 
         yield sse("💬 Chat ready. Use the sidebar to ask follow-ups.")
         yield sse(":::progress: 100")
@@ -261,6 +260,8 @@ async def explain(
         "X-Accel-Buffering": "no",
         "Connection": "keep-alive",
         "x-thread-id": thread_id,
+        # Allow browsers to read custom thread id header across CORS
+        "Access-Control-Expose-Headers": "x-thread-id",
     }
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
@@ -270,19 +271,17 @@ async def explain_upload(
     request: Request,
 ) -> StreamingResponse:
     """Accept multipart file upload for analysis."""
-    
+
     # Get form data
     form = await request.form()
     uploaded_files = form.getlist("files")
     mode = form.get("mode", "orchestrator")
     agents_str = form.get("agents", "quality,bug,security")
     agents = [a.strip() for a in str(agents_str).split(",") if a.strip()]
-    
+
     if not uploaded_files:
-        return StreamingResponse(
-            iter(["No files uploaded.\n"]), media_type="text/plain"
-        )
-    
+        return StreamingResponse(iter(["No files uploaded.\n"]), media_type="text/plain")
+
     # Read uploaded files
     file_inputs = []
     for upload in uploaded_files:
@@ -290,21 +289,16 @@ async def explain_upload(
             content = await upload.read()
             try:
                 text = content.decode("utf-8")
-                file_inputs.append({
-                    "path": upload.filename or "uploaded_file",
-                    "content": text
-                })
+                file_inputs.append({"path": upload.filename or "uploaded_file", "content": text})
             except UnicodeDecodeError:
                 continue
-    
+
     if not file_inputs:
-        return StreamingResponse(
-            iter(["No valid text files found.\n"]), media_type="text/plain"
-        )
-    
+        return StreamingResponse(iter(["No valid text files found.\n"]), media_type="text/plain")
+
     graph_app = request.app.state.graph_app
     thread_id = str(uuid.uuid4())
-    
+
     # Create thread
     try:
         repo.create_thread(thread_id, title=f"Upload Analysis {thread_id[:8]}")
@@ -315,24 +309,24 @@ async def explain_upload(
     state["thread_id"] = thread_id
     state["source"] = "folder"
     state["files"] = file_inputs
-    
+
     logger.info(
         "Upload request: thread_id=%s files=%d mode=%s",
         thread_id,
         len(file_inputs),
         mode,
     )
-    
+
     # Reuse the same streaming logic
-    
+
     async def event_stream() -> AsyncGenerator[str, None]:
         yield sse(":::progress: 5")
         yield sse(f"📁 Uploaded {len(file_inputs)} files")
-        
+
         streamed_chunks: list[str] = []
         final_text: str | None = None
         final_state: dict | None = None
-        
+
         try:
             async for event in graph_app.astream_events(
                 state,
@@ -392,24 +386,30 @@ async def explain_upload(
                             yield sse(p)
             except Exception:
                 pass
-        
+
         if not final_text and streamed_chunks:
             final_text = "".join(streamed_chunks)
 
         if final_text:
             try:
-                repo.update_thread(thread_id, report_text=final_text, state=final_state or {}, file_count=len(file_inputs))
+                repo.update_thread(
+                    thread_id,
+                    report_text=final_text,
+                    state=final_state or {},
+                    file_count=len(file_inputs),
+                )
             except Exception:
                 pass
-        
+
         yield sse("💬 Chat ready. Use the sidebar to ask follow-ups.")
         yield sse(":::progress: 100")
-    
+
     headers = {
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
         "Connection": "keep-alive",
         "x-thread-id": thread_id,
+        "Access-Control-Expose-Headers": "x-thread-id",
     }
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
@@ -498,7 +498,7 @@ async def list_threads(limit: int = 50) -> list[dict]:
                 "created_at": t.created_at.isoformat(),
                 "updated_at": t.updated_at.isoformat(),
                 "file_count": t.file_count,
-                "summary": t.title # Alias for frontend
+                "summary": t.title,  # Alias for frontend
             }
             for t in threads
         ]
@@ -512,7 +512,7 @@ async def get_thread(thread_id: str) -> dict:
     th = repo.get_thread(thread_id)
     if not th:
         return {}
-    
+
     msgs = repo.get_messages(thread_id)
     return {
         "thread_id": th.id,
@@ -521,11 +521,7 @@ async def get_thread(thread_id: str) -> dict:
         "state": th.state_json,
         "created_at": th.created_at.isoformat(),
         "messages": [
-            {
-                "role": m.role,
-                "content": m.content,
-                "created_at": m.created_at.isoformat()
-            }
+            {"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()}
             for m in msgs
-        ]
+        ],
     }

@@ -10,9 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.121.3",
-    # Pin LangGraph + SQLite checkpointer to a stable pair
+    # LangGraph core; SQLite checkpointer is optional (see extras below)
     "langgraph==0.6.0",
-    "langgraph-checkpoint-sqlite==3.1.0",
     "langchain>=0.3.27",
     "langchain-core>=0.3.80",
     "langchain-openai>=0.2.14",
@@ -34,10 +33,12 @@ dependencies = [
 
 [project.optional-dependencies]
 # Optional SQLite checkpointer for LangGraph persistence.
-# Install via: `pip install langgraph-checkpoint-sqlite>=3.0.0`
-# or use extras when available.
+# Enable via `LANGGRAPH_CHECKPOINTER=1` and install with one of:
+#   pip install langgraph-checkpoint-sqlite
+#   pip install .[checkpointer]
 checkpointer = [
-    "langgraph-checkpoint-sqlite==3.1.0",
+    # Keep unpinned to allow compatible releases; app guards runtime imports
+    "langgraph-checkpoint-sqlite>=0.1.0",
 ]
 
 [tool.setuptools.packages.find]
