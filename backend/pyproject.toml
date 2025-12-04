@@ -10,13 +10,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.121.3",
-    # Pin LangGraph + SQLite checkpointer to a stable pair
+    # LangGraph core; SQLite checkpointer is optional (see extras below)
     "langgraph==0.6.0",
-    "langgraph-checkpoint-sqlite==3.1.0",
-    "langchain>=0.3.27",
-    "langchain-core>=0.3.80",
-    "langchain-openai>=0.2.14",
-    "langchain-community>=0.3.13",
+    # PostgreSQL driver
+    "psycopg[binary]>=3.1",
+    # Database migrations
+    "alembic>=1.13",
+    # Keep LangChain libs on the 0.3.x line to avoid requiring langgraph>=1.x
+    "langchain>=0.3.27,<1.0.0",
+    "langchain-openai>=0.2.14,<1.0.0",
+    "langchain-community>=0.3.13,<1.0.0",
     "pydantic>=2.12.4",
     "python-dotenv>=1.2.1",
     "uvicorn[standard]>=0.38.0",
@@ -29,15 +32,16 @@ dependencies = [
     "tree-sitter>=0.25.2",
     "tree-sitter-python>=0.25.0",
     "tree-sitter-javascript>=0.25.0",
-    "langchain-qdrant>=1.1.0",
 ]
 
 [project.optional-dependencies]
 # Optional SQLite checkpointer for LangGraph persistence.
-# Install via: `pip install langgraph-checkpoint-sqlite>=3.0.0`
-# or use extras when available.
+# Enable via `LANGGRAPH_CHECKPOINTER=1` and install with one of:
+#   pip install langgraph-checkpoint-sqlite
+#   pip install .[checkpointer]
 checkpointer = [
-    "langgraph-checkpoint-sqlite==3.1.0",
+    # Keep unpinned to allow compatible releases; app guards runtime imports
+    "langgraph-checkpoint-sqlite>=0.1.0",
 ]
 
 [tool.setuptools.packages.find]

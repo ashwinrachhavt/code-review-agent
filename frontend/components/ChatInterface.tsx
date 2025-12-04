@@ -1,11 +1,26 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { useState, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { Streamdown } from 'streamdown';
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "./ai-elements/conversation";
+import {
+  Message as AIMessage,
+  MessageContent,
+  MessageResponse,
+} from "./ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputSubmit,
+} from "./ai-elements/prompt-input";
 
 interface Message {
     role: 'user' | 'assistant';
@@ -21,22 +36,40 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
     const [messages, setMessages] = useState<Message[]>(initialMessages);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const scrollRef = useRef<HTMLDivElement>(null);
 
     // Update messages when initialMessages changes (e.g. switching threads)
     useEffect(() => {
         setMessages(initialMessages);
     }, [initialMessages]);
 
-    useEffect(() => {
-        scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    // AI Elements provides ConversationScrollButton; no manual scroll needed here
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const refreshThread = async () => {
+        if (!threadId) return;
+        try {
+            const res = await fetch(`/api/threads/${threadId}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (Array.isArray(data?.messages)) {
+                setMessages(data.messages as Message[]);
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    const handlePromptSubmit = async (
+        _message: any,
+        e: React.FormEvent<HTMLFormElement>
+    ) => {
         e.preventDefault();
-        if (!input.trim() || !threadId || isLoading) return;
+        const text = input.trim();
+        if (!text || !threadId || isLoading) return;
 
-        const userMessage: Message = { role: 'user', content: input };
+        const userMessage: Message = { role: 'user', content: text };
+        // Prepare full history (without assistant placeholder)
+        const historyToSend = [...messages, userMessage];
+        // Optimistically add the user message to UI
         setMessages((prev) => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
@@ -50,9 +83,10 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
                 headers: {
                     'Content-Type': 'application/json',
                     'x-thread-id': threadId,
+                    'Accept': 'text/event-stream',
                 },
                 body: JSON.stringify({
-                    messages: [{ role: 'user', content: input }],
+                    messages: historyToSend,
                 }),
             });
 
@@ -63,12 +97,31 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
             let assistantContent = '';
 
             if (reader) {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                let buffer = '';
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    assistantContent += chunk;
+                const processEvent = (evt: string) => {
+                    const dataLines = evt
+                        .split('\n')
+                        .filter((line) => line.startsWith('data: '))
+                        .map((line) => line.slice(6));
+                    if (dataLines.length === 0) return;
+
+                    const payload = dataLines.join('\n');
+                    const trimmed = payload.trim();
+
+                    if (trimmed.startsWith(':::progress:')) return;
+                    if (trimmed === ':::done') {
+                        // Ensure persisted assistant message shows in sidebar/state
+                        refreshThread();
+                        try {
+                            // Notify parent/page to invalidate queries (threads + active thread)
+                            window.dispatchEvent(new CustomEvent('cra:thread-updated', { detail: { threadId } }));
+                        } catch {}
+                        return;
+                    }
+                    if (!payload) return;
+
+                    assistantContent += payload + '\n\n';
 
                     // Update the last message (assistant's placeholder)
                     setMessages((prev) => {
@@ -79,7 +132,36 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
                         }
                         return newMessages;
                     });
+                };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const events = buffer.split('\n\n');
+                    buffer = events.pop() ?? '';
+
+                    for (const evt of events) {
+                        processEvent(evt);
+                    }
                 }
+
+                if (buffer.trim()) {
+                    processEvent(buffer);
+                }
+            }
+
+            // If nothing arrived, show a helpful fallback
+            if (!assistantContent.trim()) {
+                setMessages((prev) => {
+                    const newMessages = [...prev];
+                    const lastMsg = newMessages[newMessages.length - 1];
+                    if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.content) {
+                        lastMsg.content = 'No response generated. If this thread has no prior analysis, run an analysis first, then ask your question.';
+                    }
+                    return newMessages;
+                });
             }
         } catch (error) {
             console.error('Chat error:', error);
@@ -124,68 +206,50 @@ export function ChatInterface({ threadId, initialMessages = [] }: ChatInterfaceP
                     Chat about your code
                 </h3>
             </div>
-
-            <ScrollArea className="flex-1 p-4">
-                <div className="space-y-4">
-                    {messages.length === 0 ? (
-                        <div className="text-center text-muted-foreground py-8">
-                            <p>Ask questions about the code review</p>
-                            <p className="text-sm mt-2">
-                                Example: "What security issues were found?"
-                            </p>
-                        </div>
-                    ) : (
-                        messages.map((message, index) => (
-                            <div
-                                key={index}
-                                className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'
-                                    }`}
-                            >
-                                {message.role === 'assistant' && (
-                                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                                        <Bot className="w-4 h-4 text-primary-foreground" />
-                                    </div>
-                                )}
-                                <div
-                                    className={`rounded-lg p-3 max-w-[80%] ${message.role === 'user'
-                                        ? 'bg-primary text-primary-foreground'
-                                        : 'bg-muted'
-                                        }`}
-                                >
-                                    {message.role === 'assistant' ? (
-                                        <div className="prose prose-sm dark:prose-invert max-w-none">
-                                            <Streamdown>{message.content}</Streamdown>
-                                        </div>
-                                    ) : (
-                                        <p className="text-sm">{message.content}</p>
-                                    )}
-                                </div>
-                                {message.role === 'user' && (
-                                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                                        <User className="w-4 h-4" />
-                                    </div>
-                                )}
-                            </div>
-                        ))
-                    )}
-                    <div ref={scrollRef} />
-                </div>
-            </ScrollArea>
-
-            <form onSubmit={handleSubmit} className="border-t p-4">
-                <div className="flex gap-2">
-                    <Input
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask a question about the code..."
-                        disabled={isLoading}
-                        className="flex-1"
-                    />
-                    <Button type="submit" disabled={!input.trim() || isLoading}>
-                        <Send className="w-4 h-4" />
-                    </Button>
-                </div>
-            </form>
+            <div className="flex-1 p-2 overflow-hidden">
+                <Conversation className="h-full">
+                    <ConversationContent>
+                        {messages.length === 0 ? (
+                            <ConversationEmptyState
+                                title="No messages yet"
+                                description="Ask a question about the analysis to start."
+                            />
+                        ) : (
+                            messages.map((m, idx) => (
+                                <AIMessage key={idx} from={m.role}>
+                                    <MessageContent>
+                                        {m.role === 'assistant' ? (
+                                            <MessageResponse>
+                                                <div className="prose prose-sm dark:prose-invert max-w-none">
+                                                    <Streamdown>{m.content}</Streamdown>
+                                                </div>
+                                            </MessageResponse>
+                                        ) : (
+                                            <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+                                        )}
+                                    </MessageContent>
+                                </AIMessage>
+                            ))
+                        )}
+                    </ConversationContent>
+                    <ConversationScrollButton />
+                </Conversation>
+            </div>
+            <div className="border-t p-2">
+                <PromptInput onSubmit={handlePromptSubmit} className="w-full">
+                        <PromptInputBody>
+                            <PromptInputTextarea
+                                placeholder="Ask a question about the code..."
+                                disabled={isLoading || !threadId}
+                                onChange={(e) => setInput(e.target.value)}
+                                value={input}
+                            />
+                        </PromptInputBody>
+                        <PromptInputFooter>
+                            <PromptInputSubmit disabled={!input.trim() || isLoading || !threadId} status={isLoading ? 'submitted' : 'idle'} />
+                        </PromptInputFooter>
+                    </PromptInput>
+            </div>
         </div>
     );
 }

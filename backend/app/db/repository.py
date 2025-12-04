@@ -1,17 +1,17 @@
-import json
-import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from sqlalchemy.orm import Session
-from backend.app.db.models import Thread, Message
+
 from backend.app.db.db import SessionLocal
+from backend.app.db.models import Message, Thread
+
 
 class ThreadRepository:
     """
     Repository for managing threads and messages using SQLAlchemy.
     """
-    
+
     def __init__(self, db: Session | None = None):
         # Prefer short-lived sessions per operation; avoid holding a global session
         self.db = db
@@ -38,7 +38,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def get_thread(self, thread_id: str) -> Optional[Thread]:
+    def get_thread(self, thread_id: str) -> Thread | None:
         db = self._get_session()
         try:
             return db.query(Thread).filter(Thread.id == thread_id).first()
@@ -46,13 +46,22 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def update_thread(self, thread_id: str, report_text: str = None, state: Dict[str, Any] = None, file_count: int = 0):
+    def update_thread(
+        self,
+        thread_id: str,
+        report_text: str = None,
+        state: dict[str, Any] = None,
+        file_count: int = 0,
+        title: str | None = None,
+    ):
         db = self._get_session()
         try:
             thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not thread:
                 thread = Thread(id=thread_id, title="New Analysis")
                 db.add(thread)
+            if title is not None:
+                thread.title = title
             if report_text is not None:
                 thread.report_text = report_text
             if state is not None:
@@ -70,7 +79,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def list_threads(self, limit: int = 50) -> List[Thread]:
+    def list_threads(self, limit: int = 50) -> list[Thread]:
         db = self._get_session()
         try:
             return db.query(Thread).order_by(Thread.updated_at.desc()).limit(limit).all()
@@ -85,6 +94,14 @@ class ThreadRepository:
             db.add(message)
             db.commit()
             db.refresh(message)
+            # Touch parent thread's updated_at to keep it sorted by recent activity
+            try:
+                thread = db.query(Thread).filter(Thread.id == thread_id).first()
+                if thread is not None:
+                    thread.updated_at = datetime.utcnow()
+                    db.commit()
+            except Exception:
+                db.rollback()
             return message
         except Exception:
             db.rollback()
@@ -93,7 +110,7 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-    def get_messages(self, thread_id: str) -> List[Message]:
+    def get_messages(self, thread_id: str) -> list[Message]:
         db = self._get_session()
         try:
             return (
@@ -106,6 +123,27 @@ class ThreadRepository:
             if self.db is None:
                 db.close()
 
-# Global instance for backward compatibility if needed, 
+    def delete_thread(self, thread_id: str) -> bool:
+        """Delete a thread and all its messages.
+
+        Returns True if a thread was deleted, False if it did not exist.
+        """
+        db = self._get_session()
+        try:
+            # Delete messages first (no FK cascade in schema)
+            db.query(Message).filter(Message.thread_id == thread_id).delete()
+            # Delete thread
+            count = db.query(Thread).filter(Thread.id == thread_id).delete()
+            db.commit()
+            return bool(count)
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            if self.db is None:
+                db.close()
+
+
+# Global instance for backward compatibility if needed,
 # though dependency injection is preferred in routes.
 repo = ThreadRepository()

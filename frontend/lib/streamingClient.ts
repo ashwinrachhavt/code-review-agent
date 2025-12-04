@@ -65,6 +65,8 @@ export async function streamExplain(
             if (payload.startsWith(':::progress:')) {
               const m = payload.match(/:::progress:\s*(\d+)/);
               if (m && handlers.onProgress) handlers.onProgress(parseInt(m[1], 10));
+            } else if (payload.trim() === ':::done') {
+              handlers.onDone?.();
             } else if (payload) {
               handlers.onChunk?.(payload + '\n');
             }
@@ -82,6 +84,8 @@ export async function streamExplain(
           if (content.startsWith(':::progress:')) {
             const m = content.match(/:::progress:\s*(\d+)/);
             if (m && handlers.onProgress) handlers.onProgress(parseInt(m[1], 10));
+          } else if (content.trim() === ':::done') {
+            handlers.onDone?.();
           } else {
             handlers.onChunk?.(content + '\n');
           }
@@ -97,6 +101,8 @@ export async function streamExplain(
         if (payload.startsWith(':::progress:')) {
           const m = payload.match(/:::progress:\s*(\d+)/);
           if (m && handlers.onProgress) handlers.onProgress(parseInt(m[1], 10));
+        } else if (payload.trim() === ':::done') {
+          handlers.onDone?.();
         } else if (payload) {
           handlers.onChunk?.(payload + '\n');
         }
@@ -106,6 +112,8 @@ export async function streamExplain(
           if (content.startsWith(':::progress:')) {
             const m = content.match(/:::progress:\s*(\d+)/);
             if (m && handlers.onProgress) handlers.onProgress(parseInt(m[1], 10));
+          } else if (content.trim() === ':::done') {
+            handlers.onDone?.();
           } else {
             handlers.onChunk?.(content + '\n');
           }
@@ -148,6 +156,8 @@ export async function streamFromRoute(
     if (payload.startsWith(':::progress:')) {
       const m = payload.match(/:::progress:\s*(\d+)/);
       if (m && handlers.onProgress) handlers.onProgress(parseInt(m[1], 10));
+    } else if (payload.trim() === ':::done') {
+      handlers.onDone?.();
     } else {
       handlers.onChunk?.(payload + '\n');
     }

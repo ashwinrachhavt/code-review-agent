@@ -24,9 +24,7 @@ def _format_security_section(
         if vulns:
             parts.append(f"**Tool Findings:** {len(vulns)} vulnerabilities detected\n\n")
             for v in vulns[:5]:  # Top 5
-                parts.append(
-                    f"- Line {v.get('line')}: {v.get('type')} [{v.get('severity')}]\n"
-                )
+                parts.append(f"- Line {v.get('line')}: {v.get('type')} [{v.get('severity')}]\n")
             parts.append("\n")
 
     # Expert analysis

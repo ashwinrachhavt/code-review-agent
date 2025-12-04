@@ -62,21 +62,21 @@ def build_graph(settings: Settings | None = None) -> Any:
     graph.add_node("router", router_node)
     graph.add_node("build_context", context_node)
     graph.add_node("tools_parallel", tools_parallel_node)
-    
+
     # Expert LLM nodes (run in parallel after tools)
     graph.add_node("security_expert", security_expert_node)
     graph.add_node("api_expert", api_expert_node)
     graph.add_node("db_expert", db_expert_node)
-    
+
     # AST analysis (also runs in parallel)
     graph.add_node("ast_analysis", ast_tree_sitter_node)
-    
+
     # Collector merges expert outputs
     graph.add_node("collector", collector_node)
-    
+
     graph.add_node("synthesis", synthesis_node)
     graph.add_node("persist", _persist_node)
-    
+
     # Chat nodes
     graph.add_node("chat_context_enrich", chat_context_enrich_node)
     graph.add_node("chat_reply", chat_reply_node)
@@ -100,25 +100,25 @@ def build_graph(settings: Settings | None = None) -> Any:
             "analyze": "router",
         },
     )
-    
+
     # Chat path: enrich context then reply
     graph.add_edge("chat_context_enrich", "chat_reply")
 
     graph.add_edge("router", "build_context")
     graph.add_edge("build_context", "tools_parallel")
-    
+
     # Parallel expert execution after tools
     graph.add_edge("tools_parallel", "security_expert")
     graph.add_edge("tools_parallel", "api_expert")
     graph.add_edge("tools_parallel", "db_expert")
     graph.add_edge("tools_parallel", "ast_analysis")
-    
+
     # Collector waits for all experts + AST
     graph.add_edge("security_expert", "collector")
     graph.add_edge("api_expert", "collector")
     graph.add_edge("db_expert", "collector")
     graph.add_edge("ast_analysis", "collector")
-    
+
     # Then synthesis
     graph.add_edge("collector", "synthesis")
     graph.add_edge("synthesis", "persist")
@@ -139,10 +139,12 @@ def build_graph(settings: Settings | None = None) -> Any:
                 cp = get_checkpointer(settings.DATABASE_URL)
             else:
                 from langgraph.checkpoint.memory import MemorySaver  # type: ignore
+
                 cp = MemorySaver()
             # Guard against misconfigured backends returning context managers
             if not hasattr(cp, "get_next_version"):
                 from langgraph.checkpoint.memory import MemorySaver  # type: ignore
+
                 cp = MemorySaver()
             app = graph.compile(checkpointer=cp)
         except Exception:

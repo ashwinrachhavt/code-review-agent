@@ -6,7 +6,6 @@ Falls back to in-memory checkpoints if the sqlite saver is unavailable.
 """
 
 from typing import Any
-import os
 
 from backend.app.core.logging import get_logger
 

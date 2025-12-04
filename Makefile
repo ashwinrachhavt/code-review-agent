@@ -13,6 +13,7 @@ UVICORN ?= uvicorn
 
 .PHONY: help install install-backend install-frontend lint lint-all lint-backend lint-frontend \
 	format format-backend test test-backend run run-backend run-frontend pre-commit-install ci \
+	db-upgrade db-revise \
 	clean clean-pyc clean-egg purge
 
 help:
@@ -25,6 +26,8 @@ help:
 	@echo "  make test               # pytest (backend)"
 	@echo "  make run-backend        # start FastAPI with uvicorn"
 	@echo "  make run-frontend       # start Next.js dev server (pnpm)"
+	@echo "  make db-upgrade         # alembic upgrade head (uses backend/.env)"
+	@echo "  make db-revise MSG=...  # alembic revision --autogenerate"
 	@echo "  make pre-commit-install # install pre-commit hooks for backend"
 	@echo "  make ci                 # lint + tests (backend)"
 	@echo "  make clean              # remove __pycache__, *.pyc, *.egg-info"
@@ -117,6 +120,27 @@ run-frontend:
 		fi; \
 	else \
 		echo "$(FRONTEND_DIR) not found"; \
+	fi
+
+# --- Database migrations (Alembic) ---
+# These commands source backend/.env to pick up DATABASE_URL
+
+db-upgrade:
+	@cd $(BACKEND_DIR) && \
+	if command -v uv >/dev/null 2>&1; then \
+		uv run alembic -c alembic.ini upgrade head; \
+	else \
+		python -m alembic -c alembic.ini upgrade head; \
+	fi
+
+# Usage: make db-revise MSG="add foo column"
+db-revise:
+	@cd $(BACKEND_DIR) && \
+	MSG=$${MSG:-"auto"}; \
+	if command -v uv >/dev/null 2>&1; then \
+		uv run alembic -c alembic.ini revision --autogenerate -m "$$MSG"; \
+	else \
+		python -m alembic -c alembic.ini revision --autogenerate -m "$$MSG"; \
 	fi
 
 pre-commit-install:

@@ -60,9 +60,8 @@ def api_expert_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Format prompt without interpreting JSON braces in template
     # Use targeted replacement instead of str.format to avoid KeyError
-    prompt_text = (
-        prompt_template.replace("{file_list}", file_list or "No files provided")
-        .replace("{code_sample}", code_sample or "No code provided")
+    prompt_text = prompt_template.replace("{file_list}", file_list or "No files provided").replace(
+        "{code_sample}", code_sample or "No code provided"
     )
 
     try:
@@ -99,7 +98,7 @@ def api_expert_node(state: dict[str, Any]) -> dict[str, Any]:
             len(analysis.get("endpoints", [])),
             len(analysis.get("issues", [])),
         )
-        
+
         return {"api_expert_analysis": analysis}
 
     except json.JSONDecodeError as e:

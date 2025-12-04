@@ -1,10 +1,19 @@
-name: CI
+name: Backend CI
 
+# Avoid duplicate runs for PRs by limiting push to main branches only.
 on:
-  push:
-    branches: [ main, master, develop, '**' ]
   pull_request:
-    branches: [ '**' ]
+    branches:
+      - '**'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/**'
+      - 'Makefile'
+
+# Cancel previous runs for the same ref to reduce noise
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

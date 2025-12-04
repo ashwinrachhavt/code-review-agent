@@ -6,8 +6,18 @@ Quick start
  
 
 Notes
-- LangChain LLM cache is enabled in-memory to avoid repeated model calls.
-- LangGraph SQLite checkpointer can be enabled by `LANGGRAPH_CHECKPOINTER=1` (uses `DATABASE_URL`).
+- LLM caching (LangChain) is configurable via env:
+  - `LLM_CACHE=memory` (default) | `redis` | `redis_semantic` | `none`
+  - `REDIS_URL=redis://localhost:6379/0` (used for Redis caches)
+  - `LLM_CACHE_TTL=3600` (seconds, Redis caches only)
+  - `LLM_CACHE_DISTANCE_THRESHOLD=0.2` (semantic cache similarity)
+  - `OPENAI_EMBEDDINGS_MODEL=text-embedding-3-small` (for semantic cache)
+  - Redis caches require the `redis` Python client (`pip install redis`).
+  - Redis Semantic Cache requires either `langchain-redis` or a recent
+    `langchain-community` providing `RedisSemanticCache`. If embeddings or the
+    integration are unavailable, the app falls back gracefully to Redis
+    exact-match cache or in-memory cache.
+- LangGraph SQLite checkpointer is optional. Enable with `LANGGRAPH_CHECKPOINTER=1` (uses `DATABASE_URL`) and install dependency via `pip install langgraph-checkpoint-sqlite` or `pip install .[checkpointer]`.
 - Security tools:
   - Semgrep is required for security scanning. Install with:
     - `pip install semgrep` (recommended in your venv), or
