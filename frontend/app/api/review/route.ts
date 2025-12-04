@@ -9,10 +9,12 @@ const BACKEND_URL =
 export async function POST(req: Request) {
   const { id, messages, agents, mode, code, entry, chat_query, files } = await req.json();
 
-  // Determine chat mode and derive chat_query when not provided
+  // Determine intent: analysis vs chat
   const hasCode = typeof code === 'string' && code.trim().length > 0;
-  // If there's no code provided, always use chat mode to avoid backend requiring code for analysis modes
-  const forcedMode = !hasCode ? 'chat' : mode;
+  const hasFiles = Array.isArray(files) && files.length > 0;
+  const hasEntry = typeof entry === 'string' && entry.trim().length > 0;
+  const isChat = (!hasCode && !hasFiles && !hasEntry) || (String(mode).toLowerCase() === 'chat');
+
   const lastUser = Array.isArray(messages)
     ? [...messages].reverse().find((m: any) => (m?.role || '').toLowerCase() === 'user')
     : undefined;
@@ -22,7 +24,7 @@ export async function POST(req: Request) {
   const headers: Record<string, string> = {
     Accept: "text/event-stream",
     "Content-Type": "application/json",
-    "x-thread-id": id ?? "",
+    ...(id ? { 'x-thread-id': String(id) } : {}),
   };
   if (derivedChatQuery) headers["x-chat-query"] = String(derivedChatQuery);
 
@@ -30,12 +32,12 @@ export async function POST(req: Request) {
     messages,
     thread_id: id,
     agents,
-    mode: forcedMode,
-    code,
-    entry: entry || (forcedMode === 'chat' ? 'chat' : undefined),
+    mode: isChat ? 'chat' : (mode || 'orchestrator'),
     chat_query: derivedChatQuery,
   };
-  if (Array.isArray(files) && files.length) {
+  if (hasCode) body.code = code;
+  if (hasEntry) body.entry = entry;
+  if (hasFiles) {
     body.files = files.map((f: any) => ({ path: f.path, content: f.content }));
     body.source = 'folder';
   }

@@ -52,6 +52,7 @@ class ThreadRepository:
         report_text: str = None,
         state: dict[str, Any] = None,
         file_count: int = 0,
+        title: str | None = None,
     ):
         db = self._get_session()
         try:
@@ -59,6 +60,8 @@ class ThreadRepository:
             if not thread:
                 thread = Thread(id=thread_id, title="New Analysis")
                 db.add(thread)
+            if title is not None:
+                thread.title = title
             if report_text is not None:
                 thread.report_text = report_text
             if state is not None:
@@ -91,6 +94,14 @@ class ThreadRepository:
             db.add(message)
             db.commit()
             db.refresh(message)
+            # Touch parent thread's updated_at to keep it sorted by recent activity
+            try:
+                thread = db.query(Thread).filter(Thread.id == thread_id).first()
+                if thread is not None:
+                    thread.updated_at = datetime.utcnow()
+                    db.commit()
+            except Exception:
+                db.rollback()
             return message
         except Exception:
             db.rollback()
@@ -108,6 +119,26 @@ class ThreadRepository:
                 .order_by(Message.created_at.asc())
                 .all()
             )
+        finally:
+            if self.db is None:
+                db.close()
+
+    def delete_thread(self, thread_id: str) -> bool:
+        """Delete a thread and all its messages.
+
+        Returns True if a thread was deleted, False if it did not exist.
+        """
+        db = self._get_session()
+        try:
+            # Delete messages first (no FK cascade in schema)
+            db.query(Message).filter(Message.thread_id == thread_id).delete()
+            # Delete thread
+            count = db.query(Thread).filter(Thread.id == thread_id).delete()
+            db.commit()
+            return bool(count)
+        except Exception:
+            db.rollback()
+            raise
         finally:
             if self.db is None:
                 db.close()

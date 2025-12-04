@@ -43,12 +43,27 @@ class Settings:
 
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     REDIS_NAMESPACE: str = os.getenv("REDIS_NAMESPACE", "code-review-agent")
+    # Prefer Postgres in production; fall back to local SQLite for dev
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///backend/data.db")
     QDRANT_PATH: str = os.getenv("QDRANT_PATH", ":memory:")
     QDRANT_MIN_FILES: int = int(os.getenv("QDRANT_MIN_FILES", "10"))
     QDRANT_MIN_BYTES: int = int(os.getenv("QDRANT_MIN_BYTES", "100000"))
 
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+    # LLM caching configuration
+    # Backend: none | memory | redis | redis_semantic
+    LLM_CACHE: str = os.getenv("LLM_CACHE", "memory").lower()
+    # Optional TTL for Redis-based caches (seconds)
+    LLM_CACHE_TTL: int = int(os.getenv("LLM_CACHE_TTL", "3600"))
+    # Distance threshold for semantic cache (smaller is stricter)
+    LLM_CACHE_DISTANCE_THRESHOLD: float = float(
+        os.getenv("LLM_CACHE_DISTANCE_THRESHOLD", "0.2")
+    )
+    # Embeddings model used when semantic cache enabled
+    OPENAI_EMBEDDINGS_MODEL: str = os.getenv(
+        "OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small"
+    )
 
 
 @lru_cache(maxsize=1)

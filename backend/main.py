@@ -38,14 +38,102 @@ def create_app() -> FastAPI:
     logger.info("Starting Code Explanation Agent (log_level=%s)", settings.LOG_LEVEL)
     app = FastAPI(title="Code Explanation Agent")
 
-    # Enable LangChain's native LLM cache to avoid repeated calls.
-    # Falls back silently if libraries are unavailable.
+    # Enable LangChain's LLM cache (configurable via env).
+    # Falls back silently if libraries or backends are unavailable.
     try:  # pragma: no cover - optional
         from langchain.globals import set_llm_cache  # type: ignore
-        from langchain_community.cache import InMemoryCache  # type: ignore
 
-        set_llm_cache(InMemoryCache())
+        cache_backend = (settings.LLM_CACHE or "").lower()
+        if cache_backend == "none":
+            logger.info("LLM cache disabled (LLM_CACHE=none)")
+        elif cache_backend == "redis_semantic":
+            try:
+                # Prefer dedicated redis integration if installed
+                try:
+                    from langchain_redis import RedisSemanticCache  # type: ignore
+                except Exception:  # noqa: BLE001
+                    # Fallback to community cache package if available
+                    from langchain_community.cache import (  # type: ignore
+                        RedisSemanticCache,
+                    )
+
+                # Embeddings are required for semantic cache
+                try:
+                    from langchain_openai import OpenAIEmbeddings  # type: ignore
+                except Exception:  # noqa: BLE001
+                    OpenAIEmbeddings = None  # type: ignore
+
+                if settings.OPENAI_API_KEY and OpenAIEmbeddings is not None:
+                    embeddings = OpenAIEmbeddings(model=settings.OPENAI_EMBEDDINGS_MODEL)
+                    cache = RedisSemanticCache(
+                        redis_url=settings.REDIS_URL,
+                        embeddings=embeddings,
+                        distance_threshold=settings.LLM_CACHE_DISTANCE_THRESHOLD,
+                        ttl=settings.LLM_CACHE_TTL,
+                    )
+                    set_llm_cache(cache)
+                    logger.info(
+                        "LLM semantic cache enabled (Redis), threshold=%s, ttl=%ss",
+                        settings.LLM_CACHE_DISTANCE_THRESHOLD,
+                        settings.LLM_CACHE_TTL,
+                    )
+                else:
+                    logger.warning(
+                        "LLM_CACHE=redis_semantic requested but embeddings unavailable; "
+                        "falling back to exact-match Redis cache."
+                    )
+                    raise RuntimeError("semantic-cache-unavailable")
+            except Exception:
+                # Fallback to exact-match Redis cache
+                try:
+                    try:
+                        from langchain_redis import RedisCache  # type: ignore
+                    except Exception:  # noqa: BLE001
+                        from langchain_community.cache import (  # type: ignore
+                            RedisCache,
+                        )
+
+                    cache = RedisCache(redis_url=settings.REDIS_URL, ttl=settings.LLM_CACHE_TTL)
+                    set_llm_cache(cache)
+                    logger.info(
+                        "LLM cache enabled (Redis exact-match), ttl=%ss",
+                        settings.LLM_CACHE_TTL,
+                    )
+                except Exception:
+                    # Final fallback is in-memory
+                    from langchain_community.cache import InMemoryCache  # type: ignore
+
+                    set_llm_cache(InMemoryCache())
+                    logger.info("LLM cache enabled (in-memory)")
+        elif cache_backend == "redis":
+            try:
+                try:
+                    from langchain_redis import RedisCache  # type: ignore
+                except Exception:  # noqa: BLE001
+                    from langchain_community.cache import RedisCache  # type: ignore
+
+                cache = RedisCache(redis_url=settings.REDIS_URL, ttl=settings.LLM_CACHE_TTL)
+                set_llm_cache(cache)
+                logger.info(
+                    "LLM cache enabled (Redis exact-match), ttl=%ss",
+                    settings.LLM_CACHE_TTL,
+                )
+            except Exception:
+                from langchain_community.cache import InMemoryCache  # type: ignore
+
+                set_llm_cache(InMemoryCache())
+                logger.info("LLM cache enabled (in-memory)")
+        else:
+            # Default in-memory cache
+            try:
+                from langchain_community.cache import InMemoryCache  # type: ignore
+
+                set_llm_cache(InMemoryCache())
+                logger.info("LLM cache enabled (in-memory)")
+            except Exception:
+                pass
     except Exception:
+        # Never block app startup due to cache wiring issues
         pass
 
     app.add_middleware(

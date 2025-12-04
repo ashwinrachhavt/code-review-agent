@@ -12,7 +12,6 @@ if [ ! -f .env ]; then
     cat > .env << EOF
 OPENAI_API_KEY=your-key-here
 OPENAI_MODEL=gpt-4o-mini
-DATABASE_URL=sqlite:///./code_review.db
 QDRANT_PATH=./qdrant_data
 QDRANT_MIN_FILES=10
 QDRANT_MIN_BYTES=100000

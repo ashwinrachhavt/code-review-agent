@@ -60,28 +60,42 @@ export function useSSEStream(
         }
 
         const processStream = async () => {
+          let buffer = '';
           try {
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
 
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split('\n');
+              buffer += decoder.decode(value, { stream: true });
+              // SSE events are delimited by a blank line
+              const events = buffer.split('\n\n');
+              buffer = events.pop() || '';
 
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const content = line.slice(6);
+              for (const evt of events) {
+                // Collect data lines within the event
+                const dataLines = evt
+                  .split('\n')
+                  .filter((l) => l.startsWith('data: '))
+                  .map((l) => l.slice(6));
 
-                  // Handle progress updates
-                  if (content.startsWith(':::progress:')) {
-                    const prog = parseInt(content.split(':')[2].trim(), 10);
+                if (dataLines.length === 0) continue;
+                const payload = dataLines.join('\n');
+
+                // Progress indicator
+                const pm = payload.match(/^:::progress:\s*(\d+)/);
+                if (pm) {
+                  const prog = parseInt(pm[1], 10);
+                  if (!Number.isNaN(prog)) {
                     setProgress(prog);
                     options.onProgress?.(prog);
-                  } else if (content.trim()) {
-                    // Regular content
-                    setData((prev) => prev + content + '\n\n');
-                    options.onChunk?.(content);
                   }
+                  continue;
+                }
+
+                // Normal content
+                if (payload.trim()) {
+                  setData((prev) => prev + payload + '\n\n');
+                  options.onChunk?.(payload);
                 }
               }
             }

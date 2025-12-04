@@ -38,3 +38,11 @@ class ExplainRequest(BaseModel):
 
     # Optional source selector: "pasted" | "folder" | "cli"
     source: str | None = None
+
+
+class ThreadCreate(BaseModel):
+    title: str | None = None
+
+
+class ThreadUpdate(BaseModel):
+    title: str | None = None

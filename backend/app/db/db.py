@@ -1,16 +1,24 @@
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
+import os
 
 from backend.app.core.config import get_settings
+from pathlib import Path
 from backend.app.db.models import Base
 
 settings = get_settings()
 
-# Use SQLite for simplicity as requested
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
-)
+def _ensure_sqlite_dir(db_url: str) -> None:
+    if db_url.startswith("sqlite:///"):
+        path = db_url.replace("sqlite:///", "", 1)
+        dirpath = os.path.dirname(os.path.abspath(path))
+        if dirpath and not os.path.exists(dirpath):
+            os.makedirs(dirpath, exist_ok=True)
+
+db_url = settings.DATABASE_URL
+_ensure_sqlite_dir(db_url)
+connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
+engine = create_engine(db_url, connect_args=connect_args, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -39,32 +47,60 @@ def _ensure_columns(table: str, required: dict[str, str]) -> None:
         pass
 
 
+def _run_alembic_upgrade() -> None:
+    """Run Alembic upgrade to the latest migration (head)."""
+    try:
+        from alembic import command
+        from alembic.config import Config
+
+        # Resolve paths relative to repo root
+        repo_root = Path(__file__).resolve().parents[2]
+        alembic_ini = repo_root / "backend" / "alembic.ini"
+        alembic_dir = repo_root / "backend" / "alembic"
+
+        cfg = Config(str(alembic_ini))
+        cfg.set_main_option("script_location", str(alembic_dir))
+        cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+        command.upgrade(cfg, "head")
+    except Exception:
+        # Best effort; fall back to create_all below
+        pass
+
+
 def init_db():
-    """Initialize the database tables and run lightweight migrations."""
-    Base.metadata.create_all(bind=engine)
-    _migrate_threads_table_if_legacy()
-    # Lightweight migrations for existing SQLite DBs where columns were added later
-    # Use SQLite-compatible column types
-    _ensure_columns(
-        "threads",
-        {
-            "title": "TEXT",
-            "created_at": "DATETIME",
-            "updated_at": "DATETIME",
-            "report_text": "TEXT",
-            "state_json": "TEXT",
-            "file_count": "INTEGER DEFAULT 0",
-        },
-    )
-    _ensure_columns(
-        "messages",
-        {
-            "thread_id": "TEXT",
-            "role": "TEXT",
-            "content": "TEXT",
-            "created_at": "DATETIME",
-        },
-    )
+    """Initialize database by running Alembic migrations or falling back to create_all.
+
+    SQLite legacy helpers only run for SQLite URLs and are skipped for Postgres.
+    """
+    _run_alembic_upgrade()
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        pass
+
+    # Run lightweight SQLite-only helpers (no-ops for Postgres)
+    if settings.DATABASE_URL.startswith("sqlite"):
+        _migrate_threads_table_if_legacy()
+        _ensure_columns(
+            "threads",
+            {
+                "title": "TEXT",
+                "created_at": "DATETIME",
+                "updated_at": "DATETIME",
+                "report_text": "TEXT",
+                "state_json": "TEXT",
+                "file_count": "INTEGER DEFAULT 0",
+            },
+        )
+        _ensure_columns(
+            "messages",
+            {
+                "thread_id": "TEXT",
+                "role": "TEXT",
+                "content": "TEXT",
+                "created_at": "DATETIME",
+            },
+        )
 
 
 def _migrate_threads_table_if_legacy() -> None:

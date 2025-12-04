@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { MessageSquare, Clock } from 'lucide-react';
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface Thread {
     thread_id: string;
@@ -20,27 +21,25 @@ interface ThreadSidebarProps {
 }
 
 export function ThreadSidebar({ activeThreadId, onSelectThread, onNewThread }: ThreadSidebarProps) {
-    const [threads, setThreads] = useState<Thread[]>([]);
-    const [loading, setLoading] = useState(true);
+    const qc = useQueryClient();
+    const { data: threads, isLoading: loading } = useQuery<Thread[]>({
+        queryKey: ["threads", 50],
+        queryFn: async () => {
+            const res = await fetch('/api/threads');
+            if (!res.ok) throw new Error('failed to fetch threads');
+            return res.json();
+        },
+        // Whenever activeThreadId changes (new thread persisted), refetch list
+        // This avoids manual effect wiring.
+        refetchOnMount: false,
+    });
 
     useEffect(() => {
-        loadThreads();
-        // Refresh list when active thread changes (new analysis persisted)
-    }, [activeThreadId]);
-
-    const loadThreads = async () => {
-        try {
-            const response = await fetch('http://localhost:8000/threads?limit=50');
-            if (response.ok) {
-                const data = await response.json();
-                setThreads(data);
-            }
-        } catch (error) {
-            console.error('Failed to load threads:', error);
-        } finally {
-            setLoading(false);
+        // Optimistic refresh when active thread changes (e.g., after SSE completes)
+        if (activeThreadId) {
+            qc.invalidateQueries({ queryKey: ["threads", 50] }).catch(() => {});
         }
-    };
+    }, [activeThreadId, qc]);
 
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr);

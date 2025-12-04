@@ -13,8 +13,15 @@ from fastapi import APIRouter, Body, Request
 from fastapi.responses import StreamingResponse
 
 from backend.app.core.logging import get_logger
-from backend.app.core.models import ExplainRequest, Message
+from backend.app.core.models import ExplainRequest, Message, ThreadCreate, ThreadUpdate
+import json
 from backend.app.db.repository import repo
+from backend.app.services.cache import (
+    cache_get_json,
+    cache_set_json,
+    cache_delete,
+    cache_delete_prefix,
+)
 from backend.graph.state import initial_state
 
 logger = get_logger(__name__)
@@ -53,9 +60,102 @@ def sse(data: str) -> str:
     return payload + "\n\n"
 
 
+def _safe_state_for_db(state: dict | None) -> dict:
+    """Return a JSON-serializable subset of the graph state.
+
+    Avoids persistence failures when nodes include non-serializable objects.
+    Keep only keys the UI or follow-up chat might reasonably need.
+    """
+    if not isinstance(state, dict):
+        return {}
+    allowed = {
+        "files",
+        "context",
+        "context_stats",
+        "security_report",
+        "quality_report",
+        "bug_report",
+        "ast_report",
+        "final_report",
+        "mode",
+        "agents",
+        "history",
+        "tool_logs",
+        "language",
+        "source",
+        "vectorstore_id",
+        "progress",
+        "thread_id",
+    }
+    out: dict = {}
+    for k in allowed:
+        if k in state:
+            out[k] = state[k]
+    # Final JSON check; coerce obviously non-serializable leaf values to string
+    def _coerce(obj):
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, list):
+            return [_coerce(x) for x in obj]
+        if isinstance(obj, dict):
+            return {str(k): _coerce(v) for k, v in obj.items()}
+        return str(obj)
+
+    safe = _coerce(out)
+    try:
+        json.dumps(safe)
+    except Exception:
+        # Fallback to minimal state if still not JSON-serializable
+        safe = {"final_report": str(state.get("final_report") or "")}
+    return safe
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@router.get("/admin/db")
+async def db_info() -> dict:
+    """Return basic DB and migration info for debugging/hydration checks."""
+    from sqlalchemy import inspect as sa_inspect, text as sa_text
+    from backend.app.db.db import engine
+    from backend.app.core.config import get_settings
+
+    settings = get_settings()
+    url = str(settings.DATABASE_URL)
+    # Redact password in URL
+    if "@" in url and ":" in url.split("@", 1)[0]:
+        try:
+            left, right = url.split("@", 1)
+            scheme_and_user = left.split("://", 1)[-1]
+            scheme = url.split("://", 1)[0]
+            user = scheme_and_user.split(":", 1)[0]
+            url = f"{scheme}://{user}:***@{right}"
+        except Exception:
+            pass
+
+    alembic_head = None
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(sa_text("SELECT version_num FROM alembic_version"))
+            row = res.first()
+            if row:
+                alembic_head = row[0]
+    except Exception:
+        alembic_head = None
+
+    try:
+        insp = sa_inspect(engine)
+        tables = sorted(insp.get_table_names())
+    except Exception:
+        tables = []
+
+    return {
+        "database_url": url,
+        "alembic_head": alembic_head,
+        "tables": tables,
+    }
 
 
 def _extract_code_from_messages(messages: list[Message] | None) -> str:
@@ -231,22 +331,20 @@ async def explain(
         # Persist thread for sidebar/history
         if final_text:
             try:
-                # If final_state is missing, try to reconstruct or fetch
-                if not final_state:
-                    # Fetch latest state from graph memory if possible, or just save text
-                    pass
-
                 file_count = len(state.get("files", []))
-                if final_state:
+                if isinstance(final_state, dict) and isinstance(final_state.get("files"), list):
                     file_count = len(final_state.get("files", []))
 
                 repo.update_thread(
                     thread_id,
                     report_text=final_text,
-                    state=final_state or {},
+                    state=_safe_state_for_db(final_state),
                     file_count=file_count,
                 )
-                logger.info(f"Persisted thread {thread_id}")
+                # Invalidate caches on write
+                cache_delete(f"threads:item:{thread_id}")
+                cache_delete_prefix("threads:list:")
+                logger.info("Persisted thread %s", thread_id)
             except Exception as e:
                 logger.warning("Thread persistence failed: %s", e)
         else:
@@ -395,9 +493,11 @@ async def explain_upload(
                 repo.update_thread(
                     thread_id,
                     report_text=final_text,
-                    state=final_state or {},
+                    state=_safe_state_for_db(final_state),
                     file_count=len(file_inputs),
                 )
+                cache_delete(f"threads:item:{thread_id}")
+                cache_delete_prefix("threads:list:")
             except Exception:
                 pass
 
@@ -412,6 +512,15 @@ async def explain_upload(
         "Access-Control-Expose-Headers": "x-thread-id",
     }
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+
+
+@router.post("/analyze")
+async def analyze(request: Request, body: ExplainRequest) -> StreamingResponse:
+    """Alias for /explain to match frontend proxy expectations.
+
+    Some frontend routes send requests to /analyze; keep API thin by delegating.
+    """
+    return await explain(request, body)
 
 
 @router.post("/chat")
@@ -429,8 +538,21 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
         except Exception:
             pass
 
-    # Prepare chat state; rely on checkpointer for persistent state
-    chat_state = {"mode": "chat", "chat_query": question}
+    # Prepare chat state; merge any persisted analysis state so chat is grounded
+    # even when the LangGraph checkpointer is disabled or not yet warmed.
+    persisted_state: dict | None = None
+    try:
+        th = repo.get_thread(thread_id)
+        if th and isinstance(th.state_json, dict):
+            persisted_state = th.state_json
+    except Exception:
+        persisted_state = None
+
+    chat_state: dict = {"mode": "chat", "chat_query": question}
+    if isinstance(persisted_state, dict):
+        # Shallow merge is sufficient; downstream nodes read keys like
+        # final_report, security_report, quality_report, bug_report, vectorstore_id
+        chat_state = {**persisted_state, **chat_state}
 
     async def stream_chat() -> AsyncGenerator[str, None]:
         acc: list[str] = []
@@ -453,10 +575,14 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
                         content = chunk.get("content", "")
                     if content:
                         acc.append(content)
-                        yield content
+                        # Plain text streaming: emit line-chunks to avoid client buffering
+                        if not content.endswith("\n"):
+                            yield content + "\n"
+                        else:
+                            yield content
 
                 if etype == "on_node_end" and name == "chat_reply":
-                    out = data.get("output") or data.get("result") or {}
+                    out = data.get("output") or data.get("result") or data.get("state") or {}
                     if isinstance(out, dict):
                         text = out.get("chat_response") or out.get("final_report")
                         if text and not acc:
@@ -464,16 +590,47 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
                             for para in str(text).split("\n\n"):
                                 p = para.strip()
                                 if p:
-                                    yield p + "\n\n"
+                                    yield p + "\n"
+                            acc.append(str(text))
+
+                # Some langgraph versions only surface final output on graph end
+                if etype == "on_graph_end" and not acc:
+                    out = data.get("output") or data.get("result") or {}
+                    if isinstance(out, dict):
+                        text = out.get("chat_response") or out.get("final_report")
+                        if text:
+                            for para in str(text).split("\n\n"):
+                                p = para.strip()
+                                if p:
+                                    yield p + "\n"
                             acc.append(str(text))
         except Exception as e:
             logger.error("Chat streaming failed: %s", e)
             yield sse("Sorry, I encountered an error generating a response.")
 
-        # Persist assistant reply
+        # If nothing was emitted via events, fall back to a final invoke
+        if not acc:
+            try:
+                final = await graph_app.ainvoke(
+                    chat_state, config={"configurable": {"thread_id": thread_id}}
+                )
+                text = (final or {}).get("chat_response") or (final or {}).get("final_report")
+                if text:
+                    for para in str(text).split("\n\n"):
+                        p = para.strip()
+                        if p:
+                            yield p + "\n"
+                    acc.append(str(text))
+            except Exception as inv_err:
+                logger.error("Chat fallback ainvoke failed: %s", inv_err)
+
+        # Persist assistant reply and bump thread updated_at for sidebar sorting
         try:
             if acc:
-                repo.add_message(thread_id, "assistant", "".join(acc))
+                reply_text = "".join(acc)
+                repo.add_message(thread_id, "assistant", reply_text)
+                # Touch thread.updated_at without changing other fields
+                repo.update_thread(thread_id, title=None)
         except Exception:
             pass
 
@@ -490,8 +647,14 @@ async def chat(request: Request, body: ExplainRequest) -> StreamingResponse:
 async def list_threads(limit: int = 50) -> list[dict]:
     """Return recent threads for the sidebar."""
     try:
+        # Try cache first
+        cache_key = f"threads:list:{int(limit)}"
+        cached = cache_get_json(cache_key)
+        if isinstance(cached, list):
+            return cached
+
         threads = repo.list_threads(limit=limit)
-        return [
+        out = [
             {
                 "thread_id": t.id,
                 "title": t.title,
@@ -502,6 +665,8 @@ async def list_threads(limit: int = 50) -> list[dict]:
             }
             for t in threads
         ]
+        cache_set_json(cache_key, out, ttl_seconds=30)
+        return out
     except Exception:
         return []
 
@@ -509,12 +674,18 @@ async def list_threads(limit: int = 50) -> list[dict]:
 @router.get("/threads/{thread_id}")
 async def get_thread(thread_id: str) -> dict:
     """Return a single thread with state and messages."""
+    # Cache first
+    cache_key = f"threads:item:{thread_id}"
+    cached = cache_get_json(cache_key)
+    if isinstance(cached, dict) and cached.get("thread_id"):
+        return cached
+
     th = repo.get_thread(thread_id)
     if not th:
         return {}
 
     msgs = repo.get_messages(thread_id)
-    return {
+    out = {
         "thread_id": th.id,
         "title": th.title,
         "report_text": th.report_text,
@@ -525,3 +696,55 @@ async def get_thread(thread_id: str) -> dict:
             for m in msgs
         ],
     }
+    cache_set_json(cache_key, out, ttl_seconds=30)
+    return out
+
+
+# CRUD for threads
+@router.post("/threads")
+async def create_thread(body: ThreadCreate | None = None) -> dict:
+    """Create an empty thread and return its metadata."""
+    title = (body.title if body else None) or "New Analysis"
+    thread_id = str(uuid.uuid4())
+    try:
+        th = repo.create_thread(thread_id, title=title)
+        cache_delete_prefix("threads:list:")
+        return {
+            "thread_id": th.id,
+            "title": th.title,
+            "created_at": th.created_at.isoformat(),
+            "updated_at": th.updated_at.isoformat(),
+            "file_count": th.file_count,
+        }
+    except Exception:
+        return {}
+
+
+@router.patch("/threads/{thread_id}")
+async def update_thread(thread_id: str, body: ThreadUpdate) -> dict:
+    """Update thread metadata (e.g., title)."""
+    try:
+        th = repo.update_thread(thread_id, title=body.title)
+        cache_delete(f"threads:item:{thread_id}")
+        cache_delete_prefix("threads:list:")
+        return {
+            "thread_id": th.id,
+            "title": th.title,
+            "created_at": th.created_at.isoformat(),
+            "updated_at": th.updated_at.isoformat(),
+            "file_count": th.file_count,
+        }
+    except Exception:
+        return {}
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_thread(thread_id: str) -> dict:
+    """Delete a thread and its messages."""
+    try:
+        ok = repo.delete_thread(thread_id)
+        cache_delete(f"threads:item:{thread_id}")
+        cache_delete_prefix("threads:list:")
+        return {"deleted": bool(ok)}
+    except Exception:
+        return {"deleted": False}
