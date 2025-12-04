@@ -9,25 +9,33 @@ from functools import lru_cache
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+PROMPTS_DIR = BASE_DIR
 
 
 @lru_cache(maxsize=64)
-def get_prompt(name: str) -> str:
-    """Return the Markdown content for a named prompt.
+def get_prompt(name: str) -> str | None:
+    """Load a prompt template by name.
 
     Parameters
     ----------
     name: str
-        Base filename without extension, e.g., "synthesis_system".
+        Prompt name (e.g., 'synthesis_system' or 'specialists/security')
 
     Returns
     -------
-    str
-        Full Markdown content. Returns an empty string if not found.
+    Optional[str]
+        Prompt content or None if not found
     """
 
-    path = BASE_DIR / f"{name}.md"
+    # Support both .md files and without extension
+    if not name.endswith(".md"):
+        name = f"{name}.md"
+
+    prompt_path = PROMPTS_DIR / name
+    if not prompt_path.exists():
+        return None
+
     try:
-        return path.read_text(encoding="utf-8")
-    except Exception:
-        return ""
+        return prompt_path.read_text(encoding="utf-8")
+    except Exception:  # pragma: no cover
+        return None

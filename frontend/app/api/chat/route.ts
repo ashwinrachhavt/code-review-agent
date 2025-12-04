@@ -7,7 +7,9 @@ const BACKEND_URL =
   "http://localhost:8000";
 
 export async function POST(req: Request) {
-  const { id, messages } = await req.json();
+  const { id: bodyId, messages } = await req.json();
+  const headerId = req.headers.get("x-thread-id") || undefined;
+  const id = bodyId || headerId;
 
   const headers: Record<string, string> = {
     Accept: "text/event-stream",
@@ -74,4 +76,3 @@ export async function POST(req: Request) {
     },
   });
 }
-

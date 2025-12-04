@@ -6,6 +6,7 @@ Falls back to in-memory checkpoints if the sqlite saver is unavailable.
 """
 
 from typing import Any
+import os
 
 from backend.app.core.logging import get_logger
 
@@ -34,18 +35,25 @@ def get_checkpointer(db_path: str) -> Any:
     """
 
     if SqliteSaver is not None:
-        # Try both APIs for robustness across langgraph versions
+        # Normalize sqlite URL to path if needed
+        conn = str(db_path)
         try:
-            # Newer versions may provide from_conn_string
+            # Prefer from_conn_string when available
             if hasattr(SqliteSaver, "from_conn_string"):
-                return SqliteSaver.from_conn_string(db_path)  # type: ignore[attr-defined]
-        except Exception:
-            logger.debug("SqliteSaver.from_conn_string failed; falling back to direct init")
-        try:
-            # Fallback: pass file path directly
-            return SqliteSaver(db_path)  # type: ignore[call-arg]
-        except Exception:
-            logger.debug("SqliteSaver direct init failed; using in-memory checkpointer")
+                cp = SqliteSaver.from_conn_string(conn)  # type: ignore[attr-defined]
+            else:
+                # If given sqlite:///path convert to FS path
+                if conn.startswith("sqlite:///"):
+                    fs_path = conn.replace("sqlite:///", "", 1)
+                else:
+                    fs_path = conn
+                cp = SqliteSaver(fs_path)  # type: ignore[call-arg]
+            # Guard: ensure we return a real saver, not a context manager
+            if not hasattr(cp, "get_next_version"):
+                raise TypeError("SqliteSaver did not return a Saver instance")
+            return cp
+        except Exception as e:
+            logger.debug("SqliteSaver init failed (%s); using in-memory checkpointer", e)
     else:
         logger.info(
             "SQLite checkpointer not installed; install 'langgraph-checkpoint-sqlite' to enable persistence"

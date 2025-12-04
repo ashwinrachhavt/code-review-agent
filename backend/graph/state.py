@@ -64,6 +64,16 @@ class CodeReviewState(TypedDict, total=False):
     code_context: dict[str, str]
     vectorstore_id: str | None
 
+    # Expert LLM outputs (renamed to avoid node name conflicts)
+    security_expert_analysis: dict[str, Any] | None
+    api_expert_analysis: dict[str, Any] | None
+    db_expert_analysis: dict[str, Any] | None
+    expert_summary: str | None
+
+    # Chat context from RAG
+    chat_query: str | None
+    chat_context_docs: list[dict[str, Any]] | None
+
 
 def initial_state(
     *,

@@ -2,40 +2,35 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop, '**' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ '**' ]
+
+permissions:
+  contents: read
 
 jobs:
   backend:
+    name: Backend Lint + Tests (uv)
     runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
         with:
           python-version: '3.12'
+          cache: true
+          cache-dependency-path: backend/uv.lock
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+      - name: Install backend (uv sync)
+        run: make install-backend
 
-      - name: Install tools
-        run: |
-          uv pip install --system ruff pytest
+      - name: Lint backend (ruff)
+        run: make lint-backend
 
-      - name: Install backend
-        run: |
-          uv pip install --system -e backend
-
-      - name: Lint (ruff)
-        run: |
-          ruff check backend --config backend/pyproject.toml
-          ruff format --check backend --config backend/pyproject.toml
-
-      - name: Test (pytest)
-        env:
-          OPENAI_API_KEY: ''
-        run: |
-          pytest -c backend/pyproject.toml
+      - name: Test backend (pytest)
+        run: make test-backend

@@ -1,41 +1,29 @@
-from __future__ import annotations
+from datetime import datetime
+from typing import Optional, Any
+import json
 
-from datetime import UTC, datetime
-from typing import Any
-
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
+from sqlalchemy import Column, String, Text, Integer, DateTime, JSON
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
 
-
-class ThreadModel(Base):
+class Thread(Base):
     __tablename__ = "threads"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    title: Mapped[str] = mapped_column(String(200))
-    state: Mapped[dict[str, Any]] = mapped_column(JSON)
-    report_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    report_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    state_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    messages: Mapped[list[MessageModel]] = relationship(
-        back_populates="thread", cascade="all, delete-orphan", lazy="selectin"
-    )
-
-
-class MessageModel(Base):
+class Message(Base):
     __tablename__ = "messages"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    thread_id: Mapped[str] = mapped_column(String(64), ForeignKey("threads.id", ondelete="CASCADE"))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    role: Mapped[str] = mapped_column(String(20))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thread_id: Mapped[str] = mapped_column(String, index=True)
+    role: Mapped[str] = mapped_column(String)  # 'user' or 'assistant'
     content: Mapped[str] = mapped_column(Text)
-
-    thread: Mapped[ThreadModel] = relationship(back_populates="messages")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

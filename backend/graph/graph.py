@@ -13,9 +13,15 @@ from langgraph.graph import END, START, StateGraph  # type: ignore
 
 from backend.app.core.config import Settings, get_settings
 from backend.graph.memory.sqlite_checkpoint import get_checkpointer
+from backend.graph.nodes.ast_tree_sitter import ast_tree_sitter_node
+from backend.graph.nodes.chat_context_enrich import chat_context_enrich_node
 from backend.graph.nodes.chat_reply import chat_reply_node
+from backend.graph.nodes.collector import collector_node
 from backend.graph.nodes.context import context_node
 from backend.graph.nodes.router import router_node
+from backend.graph.nodes.specialists.api_expert_llm import api_expert_node
+from backend.graph.nodes.specialists.db_expert_llm import db_expert_node
+from backend.graph.nodes.specialists.security_expert_llm import security_expert_node
 from backend.graph.nodes.synthesis import synthesis_node
 from backend.graph.nodes.tools_parallel import tools_parallel_node
 from backend.graph.state import CodeReviewState
@@ -56,8 +62,23 @@ def build_graph(settings: Settings | None = None) -> Any:
     graph.add_node("router", router_node)
     graph.add_node("build_context", context_node)
     graph.add_node("tools_parallel", tools_parallel_node)
+    
+    # Expert LLM nodes (run in parallel after tools)
+    graph.add_node("security_expert", security_expert_node)
+    graph.add_node("api_expert", api_expert_node)
+    graph.add_node("db_expert", db_expert_node)
+    
+    # AST analysis (also runs in parallel)
+    graph.add_node("ast_analysis", ast_tree_sitter_node)
+    
+    # Collector merges expert outputs
+    graph.add_node("collector", collector_node)
+    
     graph.add_node("synthesis", synthesis_node)
     graph.add_node("persist", _persist_node)
+    
+    # Chat nodes
+    graph.add_node("chat_context_enrich", chat_context_enrich_node)
     graph.add_node("chat_reply", chat_reply_node)
 
     # Edges
@@ -75,14 +96,31 @@ def build_graph(settings: Settings | None = None) -> Any:
         "mode_gate",
         _route_mode,
         {
-            "chat": "chat_reply",
+            "chat": "chat_context_enrich",
             "analyze": "router",
         },
     )
+    
+    # Chat path: enrich context then reply
+    graph.add_edge("chat_context_enrich", "chat_reply")
 
     graph.add_edge("router", "build_context")
     graph.add_edge("build_context", "tools_parallel")
-    graph.add_edge("tools_parallel", "synthesis")
+    
+    # Parallel expert execution after tools
+    graph.add_edge("tools_parallel", "security_expert")
+    graph.add_edge("tools_parallel", "api_expert")
+    graph.add_edge("tools_parallel", "db_expert")
+    graph.add_edge("tools_parallel", "ast_analysis")
+    
+    # Collector waits for all experts + AST
+    graph.add_edge("security_expert", "collector")
+    graph.add_edge("api_expert", "collector")
+    graph.add_edge("db_expert", "collector")
+    graph.add_edge("ast_analysis", "collector")
+    
+    # Then synthesis
+    graph.add_edge("collector", "synthesis")
     graph.add_edge("synthesis", "persist")
     graph.add_edge("chat_reply", "persist")
     graph.add_edge("persist", END)
@@ -94,14 +132,21 @@ def build_graph(settings: Settings | None = None) -> Any:
         "yes",
     }
     if use_checkpointer:
-        # Use SQLite checkpointer with the app database path
-        db_url = settings.DATABASE_URL
-        # LangGraph sqlite saver may accept file path; extract path from URL if possible
-        db_path = db_url
-        if db_url.startswith("sqlite:///"):
-            db_path = db_url[len("sqlite:///") :]
-        checkpointer = get_checkpointer(db_path)
-        app = graph.compile(checkpointer=checkpointer)
+        # Prefer a safe in-memory checkpointer unless explicitly overridden.
+        backend_pref = str(os.getenv("LANGGRAPH_CHECKPOINTER_BACKEND", "memory")).lower()
+        try:
+            if backend_pref == "sqlite":
+                cp = get_checkpointer(settings.DATABASE_URL)
+            else:
+                from langgraph.checkpoint.memory import MemorySaver  # type: ignore
+                cp = MemorySaver()
+            # Guard against misconfigured backends returning context managers
+            if not hasattr(cp, "get_next_version"):
+                from langgraph.checkpoint.memory import MemorySaver  # type: ignore
+                cp = MemorySaver()
+            app = graph.compile(checkpointer=cp)
+        except Exception:
+            app = graph.compile()
     else:
         app = graph.compile()
     return app

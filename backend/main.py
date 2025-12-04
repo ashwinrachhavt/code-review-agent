@@ -29,6 +29,11 @@ def create_app() -> FastAPI:
     settings = get_settings()
     # SQLite checkpointer creates its own tables as needed
     setup_logging(settings.LOG_LEVEL)
+    
+    # Initialize application DB (Threads/Messages)
+    from backend.app.db.db import init_db
+    init_db()
+    
     logger.info("Starting Code Explanation Agent (log_level=%s)", settings.LOG_LEVEL)
     app = FastAPI(title="Code Explanation Agent")
 

@@ -11,12 +11,14 @@ export function MemoryPanel({ threadId, baseUrl }: { threadId: string; baseUrl?:
   async function fetchHistory() {
     if (!threadId) return;
     try {
-      // Prefer frontend proxy to avoid cross-origin/env coupling
-      const res = await fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}`);
+      // Use new threads endpoint proxy
+      const res = await fetch(`/api/threads/${encodeURIComponent(threadId)}`);
       if (!res.ok) return;
       const data = await res.json();
-      setHistory(Array.isArray(data.history) ? data.history : []);
-      setHasReport(Boolean(data.has_report));
+      // Expect shape: { id, created_at, title, state, report_text, messages }
+      const msgs = Array.isArray(data?.messages) ? data.messages : [];
+      setHistory(msgs.map((m: any) => ({ role: m.role, content: String(m.content ?? '') })));
+      setHasReport(Boolean(data?.report_text));
     } catch {}
   }
 

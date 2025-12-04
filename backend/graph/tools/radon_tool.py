@@ -20,7 +20,17 @@ except Exception:  # pragma: no cover
 
 
 def _summary(code: str) -> dict[str, Any]:
-    blocks = cc_visit(code or "")
+    try:
+        blocks = cc_visit(code or "")
+    except Exception as e:  # SyntaxError, ValueError, etc. on non-Python blobs
+        return {
+            "avg": 0.0,
+            "worst": 0.0,
+            "offenders": [],
+            "count": 0,
+            "error": str(e),
+        }
+
     scores = [getattr(b, "complexity", 0.0) for b in blocks]
     avg = statistics.fmean(scores) if scores else 0.0
     worst = max(scores) if scores else 0.0

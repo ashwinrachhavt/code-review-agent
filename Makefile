@@ -33,9 +33,9 @@ install: install-backend
 
 install-backend:
 	@if command -v uv >/dev/null 2>&1; then \
-		uv pip install --system $(BACKEND_DIR); \
+		cd $(BACKEND_DIR) && uv sync; \
 	else \
-		$(PYTHON) -m pip install $(BACKEND_DIR); \
+		$(PYTHON) -m pip install -e $(BACKEND_DIR); \
 	fi
 
 # Optional: editable install (will create an egg-info directory). Avoid in CI.
@@ -64,7 +64,11 @@ lint: lint-backend
 lint-all: lint-backend lint-frontend
 
 lint-backend:
-	$(PYTHON) -m ruff check $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml
+	@if command -v uv >/dev/null 2>&1; then \
+		uvx ruff check $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml; \
+	else \
+		$(PYTHON) -m ruff check $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml; \
+	fi
 
 lint-frontend:
 	@if [ -d $(FRONTEND_DIR) ]; then \
@@ -80,17 +84,29 @@ lint-frontend:
 format: format-backend
 
 format-backend:
-	$(PYTHON) -m ruff format $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml
+	@if command -v uv >/dev/null 2>&1; then \
+		uvx ruff format $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml; \
+	else \
+		$(PYTHON) -m ruff format $(BACKEND_DIR) --config $(BACKEND_DIR)/pyproject.toml; \
+	fi
 
 test: test-backend
 
 test-backend:
-	$(PYTHON) -m pytest -c $(BACKEND_DIR)/pyproject.toml
+	@if command -v uv >/dev/null 2>&1; then \
+		cd $(BACKEND_DIR) && uv sync && uv run pytest -c pyproject.toml; \
+	else \
+		$(PYTHON) -m pytest -c $(BACKEND_DIR)/pyproject.toml; \
+	fi
 
 run: run-backend
 
 run-backend:
-	PYTHONPATH=$(BACKEND_DIR) $(UVICORN) backend.main:app --reload
+	@if command -v uv >/dev/null 2>&1; then \
+		cd $(BACKEND_DIR) && PYTHONPATH=.. uv run uvicorn backend.main:app --reload; \
+	else \
+		PYTHONPATH=$(BACKEND_DIR) $(UVICORN) backend.main:app --reload; \
+	fi
 
 run-frontend:
 	@if [ -d $(FRONTEND_DIR) ]; then \
@@ -104,7 +120,11 @@ run-frontend:
 	fi
 
 pre-commit-install:
-	cd $(BACKEND_DIR) && pre-commit install
+	@if command -v uv >/dev/null 2>&1; then \
+		uvx pre-commit install; \
+	else \
+		cd $(BACKEND_DIR) && pre-commit install; \
+	fi
 
 ci: lint-backend test-backend
 
